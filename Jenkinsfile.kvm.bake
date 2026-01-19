@@ -1,0 +1,54 @@
+pipeline {
+  agent any
+  options { timestamps(); ansiColor('xterm'); disableConcurrentBuilds() }
+
+  parameters {
+    choice(name: 'OS', choices: ['rhel9', 'ubuntu2204'], description: 'OS flavor')
+    booleanParam(name: 'RUN_CIS', defaultValue: true, description: 'Run CIS hardening')
+    booleanParam(name: 'RUN_QUALYS_SCAN', defaultValue: true, description: 'Run Qualys scan')
+  }
+
+  environment {
+    ARTIFACT_DIR = "output/artifacts"
+  }
+
+  stages {
+    stage('Checkout') { steps { checkout scm } }
+
+    stage('Select Source Image') {
+      steps {
+        sh """
+          mkdir -p ${ARTIFACT_DIR}
+          python3 scripts/common/select_image.py \
+            --config config/images.yml \
+            --os ${OS} \
+            --platform kvm \
+            --out ${ARTIFACT_DIR}/image.json
+        """
+      }
+    }
+
+    stage('Packer Build qcow2') {
+      steps {
+        sh """
+          packer init packer/kvm/${OS}-kvm.pkr.hcl
+          packer build packer/kvm/${OS}-kvm.pkr.hcl | tee ${ARTIFACT_DIR}/packer_kvm.log
+        """
+      }
+    }
+
+    stage('Publish qcow2 to Central Repo') {
+      steps {
+        sh """
+          bash scripts/kvm/publish_qcow2.sh \
+            output/${OS}-kvm/disk.qcow2 \
+            /images/golden/${OS}/
+        """
+      }
+    }
+  }
+
+  post {
+    always { archiveArtifacts artifacts: 'output/artifacts/*', fingerprint: true }
+  }
+}
