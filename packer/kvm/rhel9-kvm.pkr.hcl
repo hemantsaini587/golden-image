@@ -1,44 +1,39 @@
 packer {
   required_plugins {
     qemu = {
-      source = "github.com/hashicorp/qemu"
+      source  = "github.com/hashicorp/qemu"
       version = ">= 1.0.0"
     }
   }
 }
 
-source "qemu" "rhel9" {
-  accelerator      = "kvm"
-  headless         = true
-  output_directory = "output/rhel9-kvm"
-  format           = "qcow2"
-  disk_size        = "20G"
+variable "os" { default = "rhel9" }
+variable "output_dir" { default = "output/artifacts/kvm" }
 
-  # Either use ISO build OR disk_image clone approach
-  iso_url      = "/isos/rhel9.iso"
+source "qemu" "golden" {
+  iso_url      = "file:///mnt/isos/rhel9.iso"
   iso_checksum = "none"
 
+  output_directory = "${var.output_dir}/${var.os}"
+  disk_image       = true
+  format           = "qcow2"
+  accelerator      = "kvm"
+  headless         = true
+
   ssh_username = "root"
-  ssh_password = "password"
+  ssh_password = "changeme"
   ssh_timeout  = "30m"
 }
 
 build {
-  sources = ["source.qemu.rhel9"]
+  sources = ["source.qemu.golden"]
 
   provisioner "shell" {
-    script = "../../scripts/linux/partitioning.sh"
-  }
-
-  provisioner "shell" {
-    script = "../../scripts/linux/install_agents.sh"
-  }
-
-  provisioner "shell" {
-    script = "../../scripts/linux/patch_os.sh"
-  }
-
-  provisioner "shell" {
-    script = "../../scripts/linux/finalize_cleanup.sh"
+    scripts = [
+      "../../scripts/linux/partitioning.sh",
+      "../../scripts/linux/install_agents.sh",
+      "../../scripts/linux/patch_os.sh",
+      "../../scripts/linux/finalize_cleanup.sh"
+    ]
   }
 }
