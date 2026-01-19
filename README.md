@@ -100,12 +100,12 @@ The framework ensures consistent:
 
 golden-image/
 
-README.md
-Jenkinsfile.aws.bake
-Jenkinsfile.aws.share
-Jenkinsfile.kvm.bake
-Jenkinsfile.vmware.bake
-Jenkinsfile.windows.iso.bake
+- README.md  
+- Jenkinsfile.aws.bake  
+- Jenkinsfile.aws.share  
+- Jenkinsfile.kvm.bake  
+- Jenkinsfile.vmware.bake  
+- Jenkinsfile.windows.iso.bake  
 
 config/
   images.yml
