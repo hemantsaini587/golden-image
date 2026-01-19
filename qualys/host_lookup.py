@@ -3,22 +3,14 @@ import argparse
 import os
 import time
 import xml.etree.ElementTree as ET
-
 from qualys.client import QualysClient
 
 def find_host_id_by_dns(client: QualysClient, dns: str):
-    """
-    Qualys Asset API (v2):
-      /api/2.0/fo/asset/host/?action=list&details=Basic&dns=<hostname>
-    Returns XML.
-    """
     r = client.get(
         "/api/2.0/fo/asset/host/",
         params={"action": "list", "details": "Basic", "dns": dns}
     )
     root = ET.fromstring(r.text)
-
-    # host id is usually under: HOST_LIST_OUTPUT/RESPONSE/HOST_LIST/HOST/ID
     for host in root.findall(".//HOST"):
         host_id = host.findtext("ID")
         if host_id:
@@ -39,9 +31,9 @@ def find_host_id_by_ip(client: QualysClient, ip: str):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--dns", required=False, help="Hostname (recommended)")
-    p.add_argument("--ip", required=False, help="Private IP (fallback)")
-    p.add_argument("--timeout-seconds", type=int, default=900)
+    p.add_argument("--dns", required=False)
+    p.add_argument("--ip", required=False)
+    p.add_argument("--timeout-seconds", type=int, default=1200)
     p.add_argument("--poll-seconds", type=int, default=30)
     p.add_argument("--out", required=True)
     args = p.parse_args()
@@ -71,7 +63,7 @@ def main():
                 f.write(host_id)
             return
 
-        print("[INFO] Host not found yet in Qualys. Waiting for agent check-in...")
+        print("[INFO] Host not found yet in Qualys. Waiting for Cloud Agent check-in...")
         time.sleep(args.poll_seconds)
 
     raise SystemExit("[ERROR] Timed out waiting for Qualys Host ID")
