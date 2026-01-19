@@ -2,28 +2,38 @@
 set -euo pipefail
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-REPORT_NAME="pre-hardening-report-${OS_NAME}-${TS}.pdf"
+OUTDIR="/tmp/qualys"
+mkdir -p "${OUTDIR}"
 
-echo "[INFO] Running Qualys PRE scan workflow..."
-echo "[INFO] Report name: ${REPORT_NAME}"
+HOSTNAME_FQDN="$(hostname -f 2>/dev/null || hostname)"
+IP_ADDR="$(hostname -I | awk '{print $1}')"
 
-# Trigger scan (placeholder for now - integrate real Qualys API)
-python3 qualys/trigger_scan.py \
-  --phase pre \
-  --os "${OS_NAME}" \
-  --artifact /tmp/build_artifact.json \
-  --out /tmp/qualys_pre.json
+echo "[INFO] Qualys PRE scan (Host ID based)"
+echo "[INFO] Hostname: ${HOSTNAME_FQDN}"
+echo "[INFO] IP: ${IP_ADDR}"
+
+python3 qualys/host_lookup.py \
+  --dns "${HOSTNAME_FQDN}" \
+  --ip "${IP_ADDR}" \
+  --timeout-seconds 1200 \
+  --poll-seconds 30 \
+  --out "${OUTDIR}/host_id.txt"
+
+HOST_ID="$(cat ${OUTDIR}/host_id.txt)"
+
+python3 qualys/vuln_summary.py \
+  --host-id "${HOST_ID}" \
+  --out "${OUTDIR}/pre_summary.json"
 
 python3 qualys/export_report.py \
   --phase pre \
   --os "${OS_NAME}" \
-  --input /tmp/qualys_pre.json \
-  --outdir /tmp
+  --host-id "${HOST_ID}" \
+  --outdir "${OUTDIR}"
 
-# Rename exported report to your required naming convention
-mv /tmp/pre-hardening-report-${OS_NAME}-*.pdf "/tmp/${REPORT_NAME}"
+PRE_REPORT="$(ls -1 ${OUTDIR}/pre-hardening-report-${OS_NAME}-*.pdf | tail -n 1)"
 
-# Upload to S3
-aws s3 cp "/tmp/${REPORT_NAME}" "s3://${REPORT_BUCKET}/${REPORT_PREFIX}/${OS_NAME}/pre/${REPORT_NAME}"
+echo "[INFO] Uploading PRE report to S3..."
+aws s3 cp "${PRE_REPORT}" "s3://${REPORT_BUCKET}/${REPORT_PREFIX}/${OS_NAME}/pre/$(basename ${PRE_REPORT})"
 
-echo "[INFO] PRE scan report uploaded successfully."
+echo "[INFO] PRE scan completed."
