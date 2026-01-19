@@ -1,0 +1,38 @@
+pipeline {
+  agent any
+  options { timestamps(); ansiColor('xterm'); disableConcurrentBuilds() }
+
+  parameters {
+    string(name: 'SOURCE_AMI_ID', defaultValue: '', description: 'Golden AMI ID')
+    string(name: 'SOURCE_REGION', defaultValue: 'us-east-1', description: 'Source region')
+    string(name: 'TARGET_REGIONS', defaultValue: 'us-west-2,ap-south-1', description: 'Comma-separated regions')
+    string(name: 'SHARE_WITH_ACCOUNTS', defaultValue: '111111111111', description: 'Comma-separated AWS accounts')
+    booleanParam(name: 'ENABLE_ENCRYPTION', defaultValue: true, description: 'Enable KMS encryption')
+    string(name: 'KMS_KEY_MAP', defaultValue: 'us-west-2=alias/golden-ami-key,ap-south-1=alias/golden-ami-key',
+           description: 'region=kmsKeyId mapping')
+  }
+
+  stages {
+    stage('Checkout') { steps { checkout scm } }
+
+    stage('Validate') {
+      steps {
+        sh 'test -n "${SOURCE_AMI_ID}"'
+      }
+    }
+
+    stage('Copy + Encrypt + Share AMI') {
+      steps {
+        sh """
+          python3 scripts/aws/share_ami.py \
+            --source-ami-id ${SOURCE_AMI_ID} \
+            --source-region ${SOURCE_REGION} \
+            --target-regions "${TARGET_REGIONS}" \
+            --share-accounts "${SHARE_WITH_ACCOUNTS}" \
+            --enable-encryption ${ENABLE_ENCRYPTION} \
+            --kms-key-map "${KMS_KEY_MAP}"
+        """
+      }
+    }
+  }
+}
