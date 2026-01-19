@@ -19,7 +19,7 @@ def main():
     critical = int(s.get("severity_5_critical", 0))
     high = int(s.get("severity_4_high", 0))
 
-    print(f"[INFO] Gate check: critical={critical}, high={high}, mode={args.fail_on}")
+    print(f"[INFO] Gate mode={args.fail_on} | critical={critical} | high={high}")
 
     if args.fail_on == "CRITICAL" and critical > 0:
         print("[ERROR] Gate failed: CRITICAL vulnerabilities detected.")
