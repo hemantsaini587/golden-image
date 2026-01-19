@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import json
 import xml.etree.ElementTree as ET
 from collections import Counter
-
 from qualys.client import QualysClient
 
 def main():
@@ -30,25 +30,25 @@ def main():
     )
 
     root = ET.fromstring(r.text)
-
-    # Each detection has SEVERITY in range 1-5
     sev_counter = Counter()
 
     for det in root.findall(".//DETECTION"):
         sev = det.findtext("SEVERITY")
         if sev:
-            sev_counter[int(sev)] += 1
+            try:
+                sev_counter[int(sev)] += 1
+            except ValueError:
+                pass
 
     summary = {
+        "host_id": args.host_id,
         "severity_5_critical": sev_counter.get(5, 0),
         "severity_4_high": sev_counter.get(4, 0),
         "severity_3_medium": sev_counter.get(3, 0),
         "severity_2_low": sev_counter.get(2, 0),
-        "severity_1_info": sev_counter.get(1, 0),
-        "host_id": args.host_id
+        "severity_1_info": sev_counter.get(1, 0)
     }
 
-    import json
     with open(args.out, "w") as f:
         json.dump(summary, f, indent=2)
 
