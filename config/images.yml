@@ -1,0 +1,32 @@
+images:
+  # AWS CIS Base AMIs (user will paste latest AMI IDs at runtime)
+  - name: rhel9-cis-aws
+    platform: aws
+    os: rhel9
+    cis_baseline: true
+    ssh_username: ec2-user
+
+  - name: ubuntu2204-cis-aws
+    platform: aws
+    os: ubuntu2204
+    cis_baseline: true
+    ssh_username: ubuntu
+
+  - name: win2022-cis-aws
+    platform: aws
+    os: win2022
+    cis_baseline: true
+
+  # KVM source images (qcow2)
+  - name: rhel9-kvm-base
+    platform: kvm
+    os: rhel9
+    cis_baseline: false
+    source_image_path: /images/base/rhel9-base.qcow2
+
+  # VMware source templates
+  - name: rhel9-vmware-template
+    platform: vmware
+    os: rhel9
+    cis_baseline: false
+    vsphere_template: RHEL9-BASE-TEMPLATE
