@@ -1,0 +1,8 @@
+reports_storage:
+  type: s3
+  bucket: golden-image-reports
+  prefix: qualys-reports
+
+defaults:
+  cis_level: L1
+  run_qualys_scan: true
