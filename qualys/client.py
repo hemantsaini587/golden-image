@@ -4,10 +4,8 @@ import requests
 
 class QualysClient:
     """
-    Qualys US Platform API:
+    Qualys US Platform API base:
       https://qualysapi.qualys.com
-
-    Using Basic Auth with X-Requested-With header.
     """
 
     def __init__(self, username: str, password: str, base_url="https://qualysapi.qualys.com"):
