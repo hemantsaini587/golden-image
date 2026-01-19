@@ -99,84 +99,84 @@ The framework ensures consistent:
 
 
 golden-image/
-├── README.md
-│
-├── Jenkinsfile.aws.bake
-├── Jenkinsfile.aws.share
-├── Jenkinsfile.kvm.bake
-├── Jenkinsfile.vmware.bake
-├── Jenkinsfile.windows.iso.bake
-│
-├── config/
-│   ├── images.yml
-│   └── global.yml
-│
-├── packer/
-│   ├── cloud/
-│   │   ├── rhel9-aws.pkr.hcl
-│   │   ├── ubuntu2204-aws.pkr.hcl
-│   │   └── win2022-aws.pkr.hcl
-│   │
-│   ├── kvm/
-│   │   ├── rhel9-kvm.pkr.hcl
-│   │   └── ubuntu2204-kvm.pkr.hcl
-│   │
-│   └── vmware/
-│       ├── rhel9-vmware.pkr.hcl
-│       ├── ubuntu2204-vmware.pkr.hcl
-│       └── win2022-vmware.pkr.hcl
-│
-├── scripts/
-│   ├── common/
-│   │   ├── select_image.py
-│   │   ├── write_manifest.py
-│   │   └── upload_reports_s3.sh
-│   │
-│   ├── aws/
-│   │   ├── extract_ami_id.py
-│   │   ├── share_ami.py
-│   │   └── utils.py
-│   │
-│   ├── kvm/
-│   │   └── publish_qcow2.sh
-│   │
-│   ├── vmware/
-│   │   └── publish_template.sh
-│   │
-│   ├── windows/
-│   │   └── publish_iso.ps1
-│   │
-│   ├── linux/
-│   │   ├── partitioning.sh
-│   │   ├── install_agents.sh
-│   │   ├── patch_os.sh
-│   │   └── finalize_cleanup.sh
-│   │
-│   └── windows-agent/
-│       ├── install_agents.ps1
-│       └── patch_os.ps1
-│
-├── ansible/
-│   ├── playbooks/
-│   │   ├── linux_base.yml
-│   │   ├── linux_cis.yml
-│   │   ├── windows_base.yml
-│   │   └── windows_cis.yml
-│   │
-│   └── roles/
-│       ├── cis_linux/
-│       │   ├── defaults/main.yml
-│       │   ├── vars/main.yml
-│       │   └── tasks/
-│       │       ├── main.yml
-│       │       └── section1.yml
-│       │
-│       └── cis_windows/
-│           └── tasks/main.yml
-│
-├── qualys/
-│   ├── trigger_scan.py
-│   └── export_report.py
-│
-└── output/
-    └── artifacts/
+
+README.md
+Jenkinsfile.aws.bake
+Jenkinsfile.aws.share
+Jenkinsfile.kvm.bake
+Jenkinsfile.vmware.bake
+Jenkinsfile.windows.iso.bake
+
+config/
+  images.yml
+    global.yml
+
+packer/
+cloud/
+  rhel9-aws.pkr.hcl
+  ubuntu2204-aws.pkr.hcl
+  win2022-aws.pkr.hcl
+
+kvm/
+  rhel9-kvm.pkr.hcl
+    ubuntu2204-kvm.pkr.hcl
+
+vmware/
+  rhel9-vmware.pkr.hcl
+  ubuntu2204-vmware.pkr.hcl
+  win2022-vmware.pkr.hcl
+
+scripts/
+  common/
+    select_image.py
+    write_manifest.py
+    upload_reports_s3.sh
+
+  aws/
+    extract_ami_id.py
+    share_ami.py
+    utils.py
+
+kvm/
+    publish_qcow2.sh
+
+vmware/
+    publish_template.sh
+
+windows/
+  publish_iso.ps1
+
+linux/
+  partitioning.sh
+  install_agents.sh
+  patch_os.sh
+  finalize_cleanup.sh
+
+windows-agent/
+  install_agents.ps1
+  patch_os.ps1
+
+ansible/
+  playbooks/
+    linux_base.yml
+    linux_cis.yml
+    windows_base.yml
+    windows_cis.yml
+
+  roles/
+    cis_linux/
+      defaults/main.yml
+      vars/main.yml
+      tasks/
+        main.yml
+        section1.yml
+    
+    cis_windows/
+      tasks/main.yml
+
+qualys/
+  trigger_scan.py
+  export_report.py
+
+output/
+  artifacts/
