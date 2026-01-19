@@ -1,102 +1,64 @@
-# Golden Image Factory (Multi-Platform)
+# Golden Image Factory (Multi-Platform) — Production Pipeline
 
 ## Overview
-Golden Image Factory is a standardized automation framework to build **Golden Images** across multiple platforms:
+Golden Image Factory automates the creation of **security-hardened Golden Images** across platforms using a standardized pipeline.
 
-- **AWS AMI** (Cloud)
-- **KVM qcow2** (On-prem)
-- **VMware Templates / VMDK / OVA** (On-prem)
-- **Windows ISO distribution** (MDT/SCCM workflow)
+It supports:
+- **AWS AMIs** (primary production workflow)
+- **On-prem KVM images** (qcow2)
+- **VMware images/templates** (VMDK / vSphere template)
+- **Windows builds** (via VMware template or ISO-based pipelines)
 
-The framework ensures consistent:
-- Security agent installation (CrowdStrike, Qualys, SSM, AWS CLI, etc.)
-- CIS hardening (Ansible / PowerShell)
-- OS patching (yum/dnf/apt or Windows updates)
-- Qualys vulnerability scanning (Cloud Agent)
-- Centralized report storage (S3/MinIO)
-- Controlled distribution/publishing per platform
-
----
-
-## Common Pipeline Stages (All Platforms)
-1. Pick source image from central storage (Artifactory/NFS/S3)
-2. Spin up test VM/server (Packer)
-3. Apply custom partitioning
-4. Install security agents
-5. CIS hardening (if needed)
-6. Qualys scan + report generation
-7. Patch OS (CVE patching)
-8. Qualys post scan + report generation
-9. Create Golden Image
-10. Distribute/publish Golden Image
+This repo implements a consistent lifecycle:
+1. Pick source image (CIS or non-CIS)
+2. Spin up test instance/VM from source image
+3. Install required security agents
+4. (Optional) Apply CIS hardening
+5. Run Qualys scan (pre-hardening)
+6. Patch OS + CVEs
+7. Run Qualys scan (post-hardening)
+8. Generate Golden Image
+9. Distribute/publish the Golden Image
 
 ---
 
-## Platform-Specific Pipelines
-
-### AWS (AMI)
-**Bake**
-- Jenkinsfile: `Jenkinsfile.aws.bake`
-- Packer Builder: `amazon-ebs`
-- Output: Golden AMI in `us-east-1`
-
-**Share**
-- Jenkinsfile: `Jenkinsfile.aws.share`
-- Features:
-  - Cross-region AMI copy
-  - Optional KMS encryption
-  - Cross-account sharing
-  - Snapshot permission sharing (mandatory)
+## Why This Pipeline Is Production-Ready
+This solution enforces:
+- Standardization across OS flavors and platforms
+- CIS hardening automation (Linux via Ansible)
+- Vulnerability validation using **Qualys Cloud Agent**
+- Pre and post scan reports stored centrally
+- Automated security gate enforcement (fail build if Critical/High vulnerabilities exist)
+- Audit-friendly reports with build metadata
 
 ---
+
+## Supported Platforms
+
+### AWS AMI (Production Workflow)
+Builder: `amazon-ebs`  
+Output: Golden AMI  
+Distribution: Copy/share/encrypt AMI across regions/accounts
 
 ### KVM (qcow2)
-- Jenkinsfile: `Jenkinsfile.kvm.bake`
-- Packer Builder: `qemu`
-- Output: qcow2 published to central KVM image repository
+Builder: `qemu`  
+Output: qcow2  
+Distribution: Publish to central artifact storage (e.g., NFS/MinIO/Artifactory)
+
+### VMware (vSphere)
+Builder: `vsphere-clone` or `vsphere-iso`  
+Output: vSphere Template / OVA  
+Distribution: Publish into vCenter Golden Image folder/catalog
+
+### Windows ISO / Template
+Approach:
+- Template-based build preferred for enterprise
+- ISO-based automation possible via MDT/SCCM
+Distribution: MDT/SCCM share or vCenter template catalog
 
 ---
 
-### VMware (Templates / OVA)
-- Jenkinsfile: `Jenkinsfile.vmware.bake`
-- Packer Builder: `vsphere-clone` or `vsphere-iso`
-- Output: Published into vCenter Golden Template folder
-
----
-
-### Windows ISO (MDT/SCCM)
-- Jenkinsfile: `Jenkinsfile.windows.iso.bake`
-- Output: ISO copied to MDT/SCCM share
-- Note: ISO build customization requires separate tooling and is treated as a publishing workflow here.
-
----
-
-## Requirements
-
-### Jenkins Build Agent
-- packer
-- python3
-- awscli
-- Ansible (Linux flows)
-- PowerShell (Windows flows)
-- boto3 (Python)
-- pyyaml (Python)
-
-### Credentials
-- AWS credentials (Bake/Share)
-- vCenter credentials (VMware pipeline)
-- Qualys API credentials (scan/report export)
-- Artifactory credentials (if source images stored in JFrog)
-
----
-
-## Notes
-- Qualys scripts are skeleton placeholders and should be replaced with real API calls.
-- Snapshot permissions are mandatory for cross-account AMI usage.
-- KMS encryption is strongly recommended for golden image distribution.
-
----
-
+## Repository Structure
 
 golden-image/
 
