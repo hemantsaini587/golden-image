@@ -1,0 +1,41 @@
+pipeline {
+  agent any
+  options { timestamps(); ansiColor('xterm'); disableConcurrentBuilds() }
+
+  parameters {
+    choice(name: 'OS', choices: ['rhel9', 'ubuntu2204', 'win2022'], description: 'OS flavor')
+    booleanParam(name: 'RUN_CIS', defaultValue: true, description: 'Run CIS hardening')
+  }
+
+  environment {
+    ARTIFACT_DIR = "output/artifacts"
+  }
+
+  stages {
+    stage('Checkout') { steps { checkout scm } }
+
+    stage('Packer Build VMware Template') {
+      steps {
+        sh """
+          mkdir -p ${ARTIFACT_DIR}
+          packer init packer/vmware/${OS}-vmware.pkr.hcl
+          packer build packer/vmware/${OS}-vmware.pkr.hcl | tee ${ARTIFACT_DIR}/packer_vmware.log
+        """
+      }
+    }
+
+    stage('Publish Template to Golden Folder') {
+      steps {
+        sh """
+          bash scripts/vmware/publish_template.sh \
+            "ImageFactory/${OS}-BUILD" \
+            "GoldenTemplates/${OS}"
+        """
+      }
+    }
+  }
+
+  post {
+    always { archiveArtifacts artifacts: 'output/artifacts/*', fingerprint: true }
+  }
+}
