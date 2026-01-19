@@ -1,55 +1,128 @@
 #!/usr/bin/env python3
 import argparse
 import os
-import time
 import xml.etree.ElementTree as ET
-from scripts.common.time_utils import utc_timestamp_compact
+from datetime import datetime
+
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+
 from qualys.client import QualysClient
 
-def create_report(client: QualysClient, template_id: str, host_id: str):
-    """
-    Qualys Report API (classic):
-      /api/2.0/fo/report/?action=launch
-    """
-    r = client.post(
-        "/api/2.0/fo/report/",
-        data={
-            "action": "launch",
-            "template_id": template_id,
-            "output_format": "pdf",
-            "report_type": "Scan",
-            "asset_group_ids": "",  # optional
-            "ips": "",              # optional
-            "host_ids": host_id
+def utc_ts():
+    return datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+def fetch_host_detections(client: QualysClient, host_id: str):
+    r = client.get(
+        "/api/2.0/fo/asset/host/vm/detection/",
+        params={
+            "action": "list",
+            "ids": host_id,
+            "show_results": 1,
+            "truncation_limit": 0
         }
     )
-    root = ET.fromstring(r.text)
-    report_id = root.findtext(".//VALUE")
-    if not report_id:
-        raise RuntimeError(f"Failed to launch report: {r.text}")
-    return report_id.strip()
+    return r.text
 
-def wait_report_finished(client: QualysClient, report_id: str, timeout=1200):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        r = client.get(
-            "/api/2.0/fo/report/",
-            params={"action": "list", "id": report_id}
-        )
-        root = ET.fromstring(r.text)
-        state = root.findtext(".//STATUS/STATE")
-        if state and state.lower() == "finished":
-            return True
-        time.sleep(20)
-    return False
+def parse_detections(xml_text: str):
+    root = ET.fromstring(xml_text)
+    detections = []
 
-def download_report(client: QualysClient, report_id: str, outpath: str):
-    r = client.get(
-        "/api/2.0/fo/report/",
-        params={"action": "fetch", "id": report_id}
+    for det in root.findall(".//DETECTION"):
+        qid = det.findtext("QID", default="").strip()
+        severity = det.findtext("SEVERITY", default="").strip()
+        title = det.findtext("TITLE", default="").strip()
+        cve_list = []
+
+        for cve in det.findall(".//CVE_LIST/CVE"):
+            if cve.text:
+                cve_list.append(cve.text.strip())
+
+        detections.append({
+            "qid": qid,
+            "severity": severity,
+            "title": title,
+            "cves": cve_list
+        })
+
+    detections.sort(key=lambda x: (int(x["severity"] or 0), x["qid"]), reverse=True)
+    return detections
+
+def generate_pdf(outpath: str, phase: str, os_name: str, host_id: str, detections: list):
+    c = canvas.Canvas(outpath, pagesize=letter)
+    width, height = letter
+
+    # Audit metadata (optional)
+    instance_id = os.environ.get("INSTANCE_ID", "N/A")
+    source_ami  = os.environ.get("SOURCE_AMI_ID", "N/A")
+    build_num   = os.environ.get("BUILD_NUMBER", "N/A")
+    build_url   = os.environ.get("BUILD_URL", "N/A")
+
+    y = height - 50
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(50, y, f"Qualys Vulnerability Report ({phase.upper()})")
+    y -= 20
+
+    c.setFont("Helvetica", 10)
+    c.drawString(50, y, f"OS: {os_name}")
+    y -= 14
+    c.drawString(50, y, f"Qualys Host ID: {host_id}")
+    y -= 14
+    c.drawString(50, y, f"Instance ID: {instance_id}")
+    y -= 14
+    c.drawString(50, y, f"Source AMI: {source_ami}")
+    y -= 14
+    c.drawString(50, y, f"Jenkins Build #: {build_num}")
+    y -= 14
+    c.drawString(50, y, f"Jenkins URL: {build_url}")
+    y -= 14
+    c.drawString(50, y, f"Generated (UTC): {datetime.utcnow().isoformat()}Z")
+    y -= 20
+
+    sev_count = {"5": 0, "4": 0, "3": 0, "2": 0, "1": 0}
+    for d in detections:
+        sev = d.get("severity", "")
+        if sev in sev_count:
+            sev_count[sev] += 1
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Summary:")
+    y -= 14
+
+    c.setFont("Helvetica", 10)
+    c.drawString(
+        60, y,
+        f"Critical (5): {sev_count['5']} | High (4): {sev_count['4']} | "
+        f"Medium (3): {sev_count['3']} | Low (2): {sev_count['2']} | Info (1): {sev_count['1']}"
     )
-    with open(outpath, "wb") as f:
-        f.write(r.content)
+    y -= 20
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Detections (Top 200):")
+    y -= 16
+
+    c.setFont("Helvetica", 9)
+
+    if not detections:
+        c.drawString(60, y, "No detections found for this host.")
+        c.save()
+        return
+
+    for d in detections[:200]:
+        line = f"SEV={d['severity']} | QID={d['qid']} | {d['title'][:95]}"
+        c.drawString(60, y, line)
+        y -= 12
+
+        if d["cves"]:
+            c.drawString(80, y, f"CVEs: {', '.join(d['cves'][:10])}")
+            y -= 12
+
+        if y < 80:
+            c.showPage()
+            c.setFont("Helvetica", 9)
+            y = height - 50
+
+    c.save()
 
 def main():
     p = argparse.ArgumentParser()
@@ -61,28 +134,25 @@ def main():
 
     user = os.environ.get("QUALYS_USERNAME")
     pwd = os.environ.get("QUALYS_PASSWORD")
-    template_id = os.environ.get("QUALYS_REPORT_TEMPLATE_ID")
-
     if not user or not pwd:
-        raise SystemExit("ERROR: QUALYS_USERNAME/QUALYS_PASSWORD not set")
-    if not template_id:
-        raise SystemExit("ERROR: QUALYS_REPORT_TEMPLATE_ID not set")
+        raise SystemExit("ERROR: QUALYS_USERNAME / QUALYS_PASSWORD env vars not set")
 
     client = QualysClient(user, pwd)
 
-    ts = utc_timestamp_compact()
-    fname = f"{'pre' if args.phase=='pre' else 'post'}-hardening-report-{args.os}-{ts}.pdf"
+    ts = utc_ts()
+    if args.phase == "pre":
+        fname = f"pre-hardening-report-{args.os}-{ts}.pdf"
+    else:
+        fname = f"post-hardening-report-{args.os}-{ts}.pdf"
+
     outpath = os.path.join(args.outdir, fname)
 
-    report_id = create_report(client, template_id, args.host_id)
-    print(f"[INFO] Report launched: {report_id}")
+    xml_text = fetch_host_detections(client, args.host_id)
+    detections = parse_detections(xml_text)
+    generate_pdf(outpath, args.phase, args.os, args.host_id, detections)
 
-    ok = wait_report_finished(client, report_id)
-    if not ok:
-        raise SystemExit("[ERROR] Report generation timed out")
-
-    download_report(client, report_id, outpath)
-    print(f"[INFO] Report downloaded: {outpath}")
+    print(f"[INFO] Real PDF report generated: {outpath}")
+    print(f"[INFO] Total detections: {len(detections)}")
 
 if __name__ == "__main__":
     main()
