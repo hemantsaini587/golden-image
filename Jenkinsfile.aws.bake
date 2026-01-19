@@ -1,94 +1,61 @@
 pipeline {
   agent any
-
-  options {
-    timestamps()
-    ansiColor('xterm')
-    disableConcurrentBuilds()
-  }
+  options { timestamps(); ansiColor('xterm'); disableConcurrentBuilds() }
 
   parameters {
     choice(name: 'OS', choices: ['rhel9', 'ubuntu2204', 'win2022'], description: 'OS flavor')
-    string(name: 'CIS_BASE_AMI_ID', defaultValue: '', description: 'Paste latest CIS Base AMI ID (example: ami-0abcd1234)')
+    string(name: 'CIS_BASE_AMI_ID', defaultValue: '', description: 'Paste latest CIS Base AMI ID')
     string(name: 'AMI_NAME_PREFIX', defaultValue: 'golden', description: 'Golden AMI name prefix')
-    booleanParam(name: 'RUN_QUALYS_SCAN', defaultValue: true, description: 'Run Qualys scan after bake')
+    booleanParam(name: 'RUN_CIS', defaultValue: false, description: 'Run CIS hardening (if base is not CIS)')
+    booleanParam(name: 'RUN_QUALYS_SCAN', defaultValue: true, description: 'Run Qualys scan')
   }
 
   environment {
-    BUILD_REGION = "us-east-1"
-    PACKER_LOG = "1"
+    REGION = "us-east-1"
     ARTIFACT_DIR = "output/artifacts"
+    PACKER_LOG = "1"
   }
 
   stages {
+    stage('Checkout') { steps { checkout scm } }
 
-    stage('Checkout Repo') {
+    stage('Validate') {
       steps {
-        checkout scm
-      }
-    }
-
-    stage('Validate Inputs') {
-      steps {
-        sh """
-          if [ -z "${CIS_BASE_AMI_ID}" ]; then
-            echo "ERROR: CIS_BASE_AMI_ID is required"
-            exit 2
-          fi
-        """
-      }
-    }
-
-    stage('Prepare Packer Vars') {
-      steps {
-        sh """
-          mkdir -p ${ARTIFACT_DIR}
-
-          cat > ${ARTIFACT_DIR}/build_vars.json <<EOF
-          {
-            "region": "${BUILD_REGION}",
-            "source_ami": "${CIS_BASE_AMI_ID}",
-            "ami_name_prefix": "${AMI_NAME_PREFIX}",
-            "os": "${OS}"
-          }
-          EOF
-
-          cat ${ARTIFACT_DIR}/build_vars.json
-        """
+        sh 'test -n "${CIS_BASE_AMI_ID}"'
       }
     }
 
     stage('Packer Init') {
       steps {
-        sh """
-          packer init packer/cloud/${OS}-aws.pkr.hcl
-        """
+        sh 'packer init packer/cloud/${OS}-aws.pkr.hcl'
       }
     }
 
-    stage('Bake Golden AMI (Packer Build)') {
+    stage('Bake AMI') {
       steps {
         sh """
+          mkdir -p ${ARTIFACT_DIR}
           packer build \
-            -var-file=${ARTIFACT_DIR}/build_vars.json \
+            -var "region=${REGION}" \
+            -var "source_ami=${CIS_BASE_AMI_ID}" \
+            -var "ami_name_prefix=${AMI_NAME_PREFIX}" \
+            -var "os=${OS}" \
             packer/cloud/${OS}-aws.pkr.hcl | tee ${ARTIFACT_DIR}/packer_build.log
         """
       }
     }
 
-    stage('Extract Golden AMI ID') {
+    stage('Extract AMI ID') {
       steps {
         sh """
           python3 scripts/aws/extract_ami_id.py \
             --packer-log ${ARTIFACT_DIR}/packer_build.log \
             --out ${ARTIFACT_DIR}/golden_ami.json
-
-          cat ${ARTIFACT_DIR}/golden_ami.json
         """
       }
     }
 
-    stage('Qualys Scan (Cloud Agent)') {
+    stage('Qualys Scan') {
       when { expression { return params.RUN_QUALYS_SCAN } }
       steps {
         sh """
@@ -106,8 +73,6 @@ pipeline {
   }
 
   post {
-    always {
-      archiveArtifacts artifacts: 'output/artifacts/*', fingerprint: true
-    }
+    always { archiveArtifacts artifacts: 'output/artifacts/*', fingerprint: true }
   }
 }
