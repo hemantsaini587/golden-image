@@ -8,35 +8,45 @@ packer {
 }
 
 variable "vcenter_server" {}
-variable "vsphere_user" {}
-variable "vsphere_password" {}
-variable "source_template" {}
+variable "vcenter_user" {}
+variable "vcenter_password" { sensitive = true }
 
-source "vsphere-clone" "rhel9" {
-  vcenter_server      = var.vcenter_server
-  username            = var.vsphere_user
-  password            = var.vsphere_password
-  insecure_connection = true
+variable "datacenter" {}
+variable "cluster" {}
+variable "datastore" {}
+variable "network" {}
+variable "folder" { default = "GoldenImages" }
 
-  template  = var.source_template
-  vm_name   = "rhel9-build-{{timestamp}}"
-  folder    = "ImageFactory"
-  cluster   = "BUILD"
-  datastore = "BUILD_DS"
+source "vsphere-clone" "golden" {
+  vcenter_server       = var.vcenter_server
+  username             = var.vcenter_user
+  password             = var.vcenter_password
+  insecure_connection  = true
+
+  datacenter = var.datacenter
+  cluster    = var.cluster
+  datastore  = var.datastore
+  folder     = var.folder
+
+  template = "RHEL9-Base-Template"
+
+  network_adapters {
+    network = var.network
+  }
+
+  ssh_username = "root"
+  ssh_password = "changeme"
 }
 
 build {
-  sources = ["source.vsphere-clone.rhel9"]
+  sources = ["source.vsphere-clone.golden"]
 
   provisioner "shell" {
-    script = "../../scripts/linux/install_agents.sh"
-  }
-
-  provisioner "shell" {
-    script = "../../scripts/linux/patch_os.sh"
-  }
-
-  provisioner "shell" {
-    script = "../../scripts/linux/finalize_cleanup.sh"
+    scripts = [
+      "../../scripts/linux/partitioning.sh",
+      "../../scripts/linux/install_agents.sh",
+      "../../scripts/linux/patch_os.sh",
+      "../../scripts/linux/finalize_cleanup.sh"
+    ]
   }
 }
