@@ -1,10 +1,19 @@
 #!/bin/bash
 set -euo pipefail
 
-QCOW2="${1}"
-DEST_DIR="${2}"
+ARTIFACT_DIR="${1:-}"
+if [ -z "${ARTIFACT_DIR}" ]; then
+  echo "Usage: publish_qcow2.sh <artifact_dir>"
+  exit 2
+fi
 
-echo "[INFO] Publishing qcow2 image..."
-mkdir -p "${DEST_DIR}"
-cp -v "${QCOW2}" "${DEST_DIR}"
-echo "[INFO] Published to ${DEST_DIR}"
+echo "[INFO] Publishing KVM qcow2 artifacts from: ${ARTIFACT_DIR}"
+
+# Example: publish to NFS/MinIO/Artifactory
+# Replace with your standard distribution method.
+DEST="/mnt/golden-images/kvm/$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "${DEST}"
+
+cp -av "${ARTIFACT_DIR}"/* "${DEST}/"
+
+echo "[INFO] Published to: ${DEST}"
