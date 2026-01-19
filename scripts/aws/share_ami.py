@@ -1,87 +1,114 @@
 #!/usr/bin/env python3
 import argparse
-import time
 import boto3
-from scripts.aws.utils import parse_csv, parse_kms_map
+import time
+from typing import List
 
-def wait_for_ami(ec2, ami_id, region):
-    print(f"[INFO] Waiting for AMI {ami_id} in {region}...")
-    while True:
-        resp = ec2.describe_images(ImageIds=[ami_id])
+def wait_for_image(ec2, image_id: str, timeout=3600):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        resp = ec2.describe_images(ImageIds=[image_id])
         state = resp["Images"][0]["State"]
         if state == "available":
-            print(f"[INFO] AMI {ami_id} is available in {region}")
             return
-        print(f"[INFO] AMI state={state}. Sleeping 20s...")
+        if state in ["failed", "error"]:
+            raise RuntimeError(f"AMI {image_id} entered failure state: {state}")
         time.sleep(20)
+    raise TimeoutError(f"Timed out waiting for AMI {image_id} to become available")
 
-def get_snapshots(ec2, ami_id):
-    resp = ec2.describe_images(ImageIds=[ami_id])
-    snaps = []
-    for m in resp["Images"][0].get("BlockDeviceMappings", []):
-        ebs = m.get("Ebs")
-        if ebs and ebs.get("SnapshotId"):
-            snaps.append(ebs["SnapshotId"])
-    return snaps
+def get_snapshot_ids(ec2, image_id: str) -> List[str]:
+    resp = ec2.describe_images(ImageIds=[image_id])
+    mappings = resp["Images"][0].get("BlockDeviceMappings", [])
+    snap_ids = []
+    for m in mappings:
+        ebs = m.get("Ebs", {})
+        sid = ebs.get("SnapshotId")
+        if sid:
+            snap_ids.append(sid)
+    return snap_ids
 
-def share_ami_and_snapshots(ec2, ami_id, snapshots, accounts):
-    print(f"[INFO] Sharing AMI {ami_id} with {accounts}")
+def share_ami_and_snapshots(ec2, image_id: str, account_ids: List[str]):
+    # Share AMI
     ec2.modify_image_attribute(
-        ImageId=ami_id,
-        LaunchPermission={"Add": [{"UserId": a} for a in accounts]}
+        ImageId=image_id,
+        LaunchPermission={"Add": [{"UserId": a} for a in account_ids]}
     )
 
-    for snap in snapshots:
-        print(f"[INFO] Sharing Snapshot {snap} with {accounts}")
+    # Share snapshots
+    snaps = get_snapshot_ids(ec2, image_id)
+    for sid in snaps:
         ec2.modify_snapshot_attribute(
-            SnapshotId=snap,
+            SnapshotId=sid,
             Attribute="createVolumePermission",
             OperationType="add",
-            UserIds=accounts
+            UserIds=account_ids
         )
 
-def copy_ami(source_region, target_region, source_ami_id, encrypt, kms_key):
-    ec2 = boto3.client("ec2", region_name=target_region)
-    args = {
-        "Name": f"golden-copy-{source_ami_id}-{int(time.time())}",
-        "SourceImageId": source_ami_id,
-        "SourceRegion": source_region
-    }
-    if encrypt:
-        args["Encrypted"] = True
-        if kms_key:
-            args["KmsKeyId"] = kms_key
+def copy_ami_to_region(src_region: str, dst_region: str, image_id: str, name: str,
+                       encrypted: bool, kms_key_id: str | None):
+    src = boto3.client("ec2", region_name=src_region)
+    dst = boto3.client("ec2", region_name=dst_region)
 
-    resp = ec2.copy_image(**args)
-    return resp["ImageId"]
+    copy_args = {
+        "SourceRegion": src_region,
+        "SourceImageId": image_id,
+        "Name": name
+    }
+
+    if encrypted:
+        copy_args["Encrypted"] = True
+        if kms_key_id:
+            copy_args["KmsKeyId"] = kms_key_id
+
+    resp = dst.copy_image(**copy_args)
+    new_image_id = resp["ImageId"]
+    wait_for_image(dst, new_image_id)
+    return new_image_id
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--source-ami-id", required=True)
     p.add_argument("--source-region", required=True)
-    p.add_argument("--target-regions", required=True)
-    p.add_argument("--share-accounts", required=True)
-    p.add_argument("--enable-encryption", required=True)
-    p.add_argument("--kms-key-map", default="")
+    p.add_argument("--source-ami", required=True)
+    p.add_argument("--target-regions", default="", help="Comma-separated regions")
+    p.add_argument("--target-accounts", default="", help="Comma-separated AWS account IDs")
+    p.add_argument("--kms-encrypt", action="store_true")
+    p.add_argument("--kms-key-id", default="", help="Optional KMS Key ARN/ID for target region copy")
+    p.add_argument("--name-prefix", default="golden-shared")
     args = p.parse_args()
 
-    targets = parse_csv(args.target_regions)
-    accounts = parse_csv(args.share_accounts)
-    encrypt = str(args.enable_encryption).lower() == "true"
-    kms_map = parse_kms_map(args.kms_key_map)
+    target_regions = [r.strip() for r in args.target_regions.split(",") if r.strip()]
+    target_accounts = [a.strip() for a in args.target_accounts.split(",") if a.strip()]
 
-    for region in targets:
-        kms_key = kms_map.get(region)
-        copied_ami = copy_ami(args.source_region, region, args.source_ami_id, encrypt, kms_key)
+    src_ec2 = boto3.client("ec2", region_name=args.source_region)
 
-        ec2 = boto3.client("ec2", region_name=region)
-        wait_for_ami(ec2, copied_ami, region)
+    # Share in source region first (optional)
+    if target_accounts:
+        print(f"[INFO] Sharing AMI {args.source_ami} in {args.source_region} with accounts {target_accounts}")
+        share_ami_and_snapshots(src_ec2, args.source_ami, target_accounts)
 
-        snaps = get_snapshots(ec2, copied_ami)
-        print(f"[INFO] Copied AMI {copied_ami} snapshots: {snaps}")
+    # Copy to other regions
+    copied = {}
+    for r in target_regions:
+        name = f"{args.name_prefix}-{r}-{int(time.time())}"
+        print(f"[INFO] Copying AMI {args.source_ami} from {args.source_region} to {r} (encrypt={args.kms_encrypt})")
+        new_ami = copy_ami_to_region(
+            src_region=args.source_region,
+            dst_region=r,
+            image_id=args.source_ami,
+            name=name,
+            encrypted=args.kms_encrypt,
+            kms_key_id=args.kms_key_id if args.kms_key_id else None
+        )
+        copied[r] = new_ami
+        print(f"[INFO] Copied AMI in {r}: {new_ami}")
 
-        share_ami_and_snapshots(ec2, copied_ami, snaps, accounts)
-        print(f"[SUCCESS] Shared AMI {copied_ami} in {region}")
+        if target_accounts:
+            dst_ec2 = boto3.client("ec2", region_name=r)
+            print(f"[INFO] Sharing copied AMI {new_ami} in {r} with accounts {target_accounts}")
+            share_ami_and_snapshots(dst_ec2, new_ami, target_accounts)
+
+    print("[INFO] Share AMI completed.")
+    print("[INFO] Copied AMIs:", copied)
 
 if __name__ == "__main__":
     main()
