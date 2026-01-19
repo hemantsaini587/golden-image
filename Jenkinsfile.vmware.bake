@@ -3,39 +3,33 @@ pipeline {
   options { timestamps(); ansiColor('xterm'); disableConcurrentBuilds() }
 
   parameters {
-    choice(name: 'OS', choices: ['rhel9', 'ubuntu2204', 'win2022'], description: 'OS flavor')
-    booleanParam(name: 'RUN_CIS', defaultValue: true, description: 'Run CIS hardening')
-  }
-
-  environment {
-    ARTIFACT_DIR = "output/artifacts"
+    choice(name: 'OS', choices: ['rhel9'], description: 'VMware OS flavor')
   }
 
   stages {
     stage('Checkout') { steps { checkout scm } }
 
-    stage('Packer Build VMware Template') {
+    stage('Build VMware Template') {
       steps {
-        sh """
-          mkdir -p ${ARTIFACT_DIR}
-          packer init packer/vmware/${OS}-vmware.pkr.hcl
-          packer build packer/vmware/${OS}-vmware.pkr.hcl | tee ${ARTIFACT_DIR}/packer_vmware.log
-        """
+        withCredentials([usernamePassword(
+          credentialsId: 'vcenter-creds',
+          usernameVariable: 'VC_USER',
+          passwordVariable: 'VC_PASS'
+        )]) {
+          sh """
+            packer init packer/vmware/${OS}-vmware.pkr.hcl
+            packer build \
+              -var "vcenter_server=${VCENTER_SERVER}" \
+              -var "vcenter_user=${VC_USER}" \
+              -var "vcenter_password=${VC_PASS}" \
+              -var "datacenter=${VCENTER_DC}" \
+              -var "cluster=${VCENTER_CLUSTER}" \
+              -var "datastore=${VCENTER_DATASTORE}" \
+              -var "network=${VCENTER_NETWORK}" \
+              packer/vmware/${OS}-vmware.pkr.hcl
+          """
+        }
       }
     }
-
-    stage('Publish Template to Golden Folder') {
-      steps {
-        sh """
-          bash scripts/vmware/publish_template.sh \
-            "ImageFactory/${OS}-BUILD" \
-            "GoldenTemplates/${OS}"
-        """
-      }
-    }
-  }
-
-  post {
-    always { archiveArtifacts artifacts: 'output/artifacts/*', fingerprint: true }
   }
 }
