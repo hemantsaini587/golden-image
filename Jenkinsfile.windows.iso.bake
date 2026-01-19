@@ -1,0 +1,21 @@
+pipeline {
+  agent any
+  options { timestamps(); ansiColor('xterm'); disableConcurrentBuilds() }
+
+  parameters {
+    string(name: 'ISO_PATH', defaultValue: '/repo/isos/Win2022.iso', description: 'Path to source ISO')
+    string(name: 'MDT_SHARE', defaultValue: '\\\\mdt-server\\DeploymentShare$', description: 'MDT/SCCM share path')
+  }
+
+  stages {
+    stage('Checkout') { steps { checkout scm } }
+
+    stage('Publish ISO to MDT/SCCM Share') {
+      steps {
+        powershell """
+          .\\scripts\\windows\\publish_iso.ps1 -IsoPath '${ISO_PATH}' -MdtShare '${MDT_SHARE}'
+        """
+      }
+    }
+  }
+}
