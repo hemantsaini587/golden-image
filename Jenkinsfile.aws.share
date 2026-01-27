@@ -3,41 +3,41 @@ pipeline {
   options { timestamps(); ansiColor('xterm'); disableConcurrentBuilds() }
 
   parameters {
-    string(name: 'SOURCE_AMI_ID', defaultValue: '', description: 'AMI ID to share/copy')
-    string(name: 'TARGET_REGIONS', defaultValue: 'us-west-2', description: 'Comma-separated regions')
-    string(name: 'TARGET_ACCOUNTS', defaultValue: '', description: 'Comma-separated AWS account IDs')
-    booleanParam(name: 'KMS_ENCRYPT', defaultValue: true, description: 'Encrypt copied AMIs with KMS')
-    string(name: 'KMS_KEY_ID', defaultValue: '', description: 'Optional KMS Key ARN/ID')
-    string(name: 'NAME_PREFIX', defaultValue: 'golden-shared', description: 'Name prefix for copied AMIs')
+    string(name: 'SOURCE_AMI_ID', description: 'Golden AMI ID (from bake job)')
+    string(name: 'TARGET_REGION', defaultValue: 'us-west-2')
+    string(name: 'CHILD_ACCOUNT_ID')
+    string(name: 'CHILD_ROLE_NAME', defaultValue: 'GoldenImageShareRole')
+    string(name: 'KMS_KEY_ARN', description: 'CMK ARN used for encryption')
+    string(name: 'NAME_PREFIX', defaultValue: 'golden')
   }
 
   environment {
-    SOURCE_REGION = "us-east-1"
-    MANIFEST_OUT  = "output/share_manifest.json"
+    SOURCE_REGION = 'us-east-1'
   }
 
   stages {
-    stage('Checkout') { steps { checkout scm } }
-
-    stage ('Validate AMI Tags') {
+    stage('Validate AMI Tags') {
       steps {
         sh """
-          python3 scripts/aws/validate_ami_tags.py --region ${SOURCE_REGION} --ami-id ${SOURCE_AMI_ID} --require-os ${OS}
+          python3 scripts/aws/validate_ami_tags.py \
+            --region ${SOURCE_REGION} \
+            --ami-id ${SOURCE_AMI_ID}
         """
       }
     }
-    stage('Share/Copy AMI + Manifest') {
+
+    stage('Encrypted Copy to Child Account') {
       steps {
         sh """
           python3 scripts/aws/share_ami.py \
             --source-region ${SOURCE_REGION} \
             --source-ami ${SOURCE_AMI_ID} \
-            --target-regions "${TARGET_REGIONS}" \
-            --target-accounts "${TARGET_ACCOUNTS}" \
-            ${KMS_ENCRYPT ? "--kms-encrypt" : ""} \
-            --kms-key-id "${KMS_KEY_ID}" \
-            --name-prefix "${NAME_PREFIX}" \
-            --manifest-out "${MANIFEST_OUT}"
+            --target-region ${TARGET_REGION} \
+            --child-account-id ${CHILD_ACCOUNT_ID} \
+            --child-role-name ${CHILD_ROLE_NAME} \
+            --kms-key-arn ${KMS_KEY_ARN} \
+            --name-prefix ${NAME_PREFIX} \
+            --manifest-out output/share_manifest.json
         """
       }
     }
@@ -46,15 +46,6 @@ pipeline {
       steps {
         archiveArtifacts artifacts: 'output/share_manifest.json', fingerprint: true
       }
-    }
-  }
-
-  post {
-    success {
-      echo "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${env.BUILD_URL}"
-    }
-    failure {
-      echo "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${env.BUILD_URL}"
     }
   }
 }
