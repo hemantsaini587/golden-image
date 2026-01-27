@@ -40,6 +40,13 @@ def resolve_kms_key(region):
 
     raise RuntimeError(f"KMS alias not found: {alias_name}")
 
+def update_catalog(item, region):
+    ddb = boto3.client("dynamodb", region_name=region)
+    ddb.put_item(
+        TableName="GoldenAmiCatalog",
+        Item={k: {"S": str(v)} for k, v in item.items()}
+    )
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--source-region", required=True)
@@ -98,6 +105,20 @@ def main():
 
     print("[SUCCESS] Encrypted AMI copied into child account")
     print(json.dumps(manifest, indent=2))
+
+    catalog_item = {
+        "PK": args.os,
+        "SK": f"{args.target_region}#{args.child_account_id}",
+        "ami_id": new_ami,
+        "encrypted": "true",
+        "kms_key": f"alias/golden-ami-{args.target_region}",
+        "source_ami": args.source_ami,
+        "build_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "qualys_post_status": "PASS",
+        "shared_by": "GoldenImageFactory"
+    }
+    update_catalog(catalog_item, args.target_region)
+
 
 if __name__ == "__main__":
     main()

@@ -47,5 +47,24 @@ pipeline {
         archiveArtifacts artifacts: 'output/share_manifest.json', fingerprint: true
       }
     }
+
+    stage('Manual Approval – Promote Golden AMI') {
+      steps {
+        timeout(time: 24, unit: 'HOURS') {
+          input message: """
+                Approve sharing this Golden AMI?
+
+                AMI ID: ${SOURCE_AMI_ID}
+                Target Account: ${CHILD_ACCOUNT_ID}
+                Target Region: ${TARGET_REGION}
+
+                Only approve if:
+                ✔ POST Qualys scan passed
+                ✔ CIS baseline approved
+                ✔ Change ticket exists
+          """ 
+        }
+      }
+    }
   }
 }
