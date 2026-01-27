@@ -29,6 +29,17 @@ def wait_for_ami(ec2, ami_id, timeout=3600):
         time.sleep(20)
     raise TimeoutError(f"Timeout waiting for {ami_id}")
 
+def resolve_kms_key(region):
+    kms = boto3.client("kms", region_name=region)
+    alias_name = f"alias/golden-ami-{region}"
+
+    aliases = kms.list_aliases()["Aliases"]
+    for a in aliases:
+        if a["AliasName"] == alias_name:
+            return a["TargetKeyId"]
+
+    raise RuntimeError(f"KMS alias not found: {alias_name}")
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--source-region", required=True)
@@ -90,3 +101,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
