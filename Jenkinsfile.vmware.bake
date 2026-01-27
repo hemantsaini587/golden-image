@@ -4,12 +4,30 @@ pipeline {
 
   parameters {
     choice(name: 'OS', choices: ['rhel9'], description: 'VMware OS flavor')
+
+    string(name: 'VCENTER_SERVER', defaultValue: 'vcenter.company.local', description: 'vCenter hostname')
+    string(name: 'VCENTER_DC', defaultValue: 'DC1', description: 'Datacenter name')
+    string(name: 'VCENTER_CLUSTER', defaultValue: 'Cluster1', description: 'Cluster name')
+    string(name: 'VCENTER_DATASTORE', defaultValue: 'Datastore1', description: 'Datastore name')
+    string(name: 'VCENTER_NETWORK', defaultValue: 'VM Network', description: 'Network name')
+    string(name: 'VCENTER_FOLDER', defaultValue: 'GoldenImages', description: 'vCenter folder for golden images')
+
+    string(name: 'BASE_TEMPLATE_NAME', defaultValue: 'RHEL9-Base-Template', description: 'Source vSphere template')
+    string(name: 'GOLDEN_VM_NAME_PREFIX', defaultValue: 'golden', description: 'Golden VM/template name prefix')
+
+    string(name: 'ARTIFACTORY_REPO_PATH', defaultValue: 'golden-images/vmware', description: 'Artifactory repo path')
+  }
+
+  environment {
+    ARTIFACTORY_URL = "${env.ARTIFACTORY_URL}"
   }
 
   stages {
-    stage('Checkout') { steps { checkout scm } }
+    stage('Checkout') {
+      steps { checkout scm }
+    }
 
-    stage('Build VMware Template') {
+    stage('Build Golden Template via Packer') {
       steps {
         withCredentials([usernamePassword(
           credentialsId: 'vcenter-creds',
@@ -18,7 +36,9 @@ pipeline {
         )]) {
           sh """
             packer init packer/vmware/${OS}-vmware.pkr.hcl
+
             packer build \
+              -var "os=${OS}" \
               -var "vcenter_server=${VCENTER_SERVER}" \
               -var "vcenter_user=${VC_USER}" \
               -var "vcenter_password=${VC_PASS}" \
@@ -26,10 +46,135 @@ pipeline {
               -var "cluster=${VCENTER_CLUSTER}" \
               -var "datastore=${VCENTER_DATASTORE}" \
               -var "network=${VCENTER_NETWORK}" \
+              -var "folder=${VCENTER_FOLDER}" \
+              -var "template=${BASE_TEMPLATE_NAME}" \
+              -var "golden_vm_name_prefix=${GOLDEN_VM_NAME_PREFIX}" \
+              -var "convert_to_template=true" \
               packer/vmware/${OS}-vmware.pkr.hcl
           """
         }
       }
+    }
+
+    stage('Deploy Template to Temp VM for OVA Export') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'vcenter-creds',
+          usernameVariable: 'VC_USER',
+          passwordVariable: 'VC_PASS'
+        )]) {
+          sh """
+            set -euo pipefail
+            TS=$(date -u +%Y%m%dT%H%M%SZ)
+
+            export GOVC_URL="${VCENTER_SERVER}"
+            export GOVC_USERNAME="${VC_USER}"
+            export GOVC_PASSWORD="${VC_PASS}"
+            export GOVC_INSECURE="1"
+            export GOVC_DATACENTER="${VCENTER_DC}"
+
+            GOLDEN_TEMPLATE="${GOLDEN_VM_NAME_PREFIX}-${OS}"
+            TEMP_VM="${GOLDEN_TEMPLATE}-export-${TS}"
+
+            echo "[INFO] Deploying temp VM from template: ${GOLDEN_TEMPLATE} -> ${TEMP_VM}"
+            govc vm.clone -vm "${GOLDEN_TEMPLATE}" -on=false -vm "${TEMP_VM}"
+
+            echo "${TEMP_VM}" > output/temp_vm_name.txt
+          """
+        }
+      }
+    }
+
+    stage('Export OVA using govc') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'vcenter-creds',
+          usernameVariable: 'VC_USER',
+          passwordVariable: 'VC_PASS'
+        )]) {
+          sh """
+            set -euo pipefail
+
+            TS=$(date -u +%Y%m%dT%H%M%SZ)
+            OUTDIR="output/artifacts/vmware/${OS}"
+            mkdir -p "$OUTDIR"
+
+            export GOVC_URL="${VCENTER_SERVER}"
+            export GOVC_USERNAME="${VC_USER}"
+            export GOVC_PASSWORD="${VC_PASS}"
+            export GOVC_INSECURE="1"
+            export GOVC_DATACENTER="${VCENTER_DC}"
+
+            TEMP_VM=$(cat output/temp_vm_name.txt)
+
+            echo "[INFO] Exporting temp VM to OVA: ${TEMP_VM}"
+            govc export.ova -vm "${TEMP_VM}" "$OUTDIR"
+
+            OVA_FILE=$(ls -1 "$OUTDIR"/*.ova | head -n 1)
+            echo "[INFO] Exported OVA: $OVA_FILE"
+
+            echo "$OVA_FILE" > "$OUTDIR/ova_path.txt"
+          """
+        }
+      }
+    }
+
+    stage('Upload OVA to Artifactory') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'artifactory-creds',
+          usernameVariable: 'ARTIFACTORY_USER',
+          passwordVariable: 'ARTIFACTORY_TOKEN'
+        )]) {
+          sh """
+            set -euo pipefail
+            TS=$(date -u +%Y%m%dT%H%M%SZ)
+            OUTDIR="output/artifacts/vmware/${OS}"
+
+            OVA_FILE=$(cat "$OUTDIR/ova_path.txt")
+
+            export ARTIFACTORY_URL="${ARTIFACTORY_URL}"
+            export ARTIFACTORY_USER="${ARTIFACTORY_USER}"
+            export ARTIFACTORY_TOKEN="${ARTIFACTORY_TOKEN}"
+
+            bash scripts/artifactory/upload_artifact.sh \
+              "$OVA_FILE" \
+              "${ARTIFACTORY_REPO_PATH}/${OS}/golden-${OS}-${TS}.ova"
+          """
+        }
+      }
+    }
+
+    stage('Cleanup Temp Export VM') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'vcenter-creds',
+          usernameVariable: 'VC_USER',
+          passwordVariable: 'VC_PASS'
+        )]) {
+          sh """
+            set -euo pipefail
+            export GOVC_URL="${VCENTER_SERVER}"
+            export GOVC_USERNAME="${VC_USER}"
+            export GOVC_PASSWORD="${VC_PASS}"
+            export GOVC_INSECURE="1"
+            export GOVC_DATACENTER="${VCENTER_DC}"
+
+            TEMP_VM=$(cat output/temp_vm_name.txt)
+            echo "[INFO] Deleting temp VM: ${TEMP_VM}"
+            govc vm.destroy "${TEMP_VM}" || true
+          """
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${env.BUILD_URL}"
+    }
+    failure {
+      echo "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${env.BUILD_URL}"
     }
   }
 }

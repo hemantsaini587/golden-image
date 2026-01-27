@@ -8,7 +8,12 @@ mkdir -p "${OUTDIR}"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 SBOM_FILE="sbom-${OS_NAME}-${TS}.json"
 
-echo "[INFO] Generating SBOM using syft..."
+echo "[INFO] Installing syft if missing..."
+if ! command -v syft >/dev/null 2>&1; then
+  curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+fi
+
+echo "[INFO] Generating SBOM..."
 syft packages dir:/ -o json > "${OUTDIR}/${SBOM_FILE}"
 
 echo "[INFO] Uploading SBOM to S3..."

@@ -1,0 +1,190 @@
+pipeline {
+  agent any
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+    disableConcurrentBuilds()
+  }
+
+  parameters {
+    choice(
+      name: 'PLATFORM',
+      choices: ['AWS', 'KVM', 'VMWARE', 'WINDOWS'],
+      description: 'Target platform'
+    )
+
+    choice(
+      name: 'OS',
+      choices: ['rhel9', 'ubuntu2204', 'win2022'],
+      description: 'Operating system'
+    )
+
+    // AWS Bake
+    string(
+      name: 'CIS_BASE_AMI_ID',
+      defaultValue: '',
+      description: '[AWS] CIS base AMI ID'
+    )
+    string(
+      name: 'AMI_NAME_PREFIX',
+      defaultValue: 'golden',
+      description: '[AWS] AMI name prefix'
+    )
+
+    // AWS Share
+    booleanParam(
+      name: 'RUN_SHARE_JOB',
+      defaultValue: false,
+      description: '[AWS] Automatically share AMI after bake'
+    )
+    string(
+      name: 'TARGET_REGIONS',
+      defaultValue: 'us-west-2',
+      description: '[AWS] Target regions'
+    )
+    string(
+      name: 'TARGET_ACCOUNTS',
+      defaultValue: '',
+      description: '[AWS] Target AWS account IDs'
+    )
+    booleanParam(
+      name: 'KMS_ENCRYPT',
+      defaultValue: true,
+      description: '[AWS] Encrypt copied AMIs'
+    )
+    string(
+      name: 'KMS_KEY_ID',
+      defaultValue: '',
+      description: '[AWS] Optional KMS Key ID'
+    )
+
+    // Artifactory
+    string(
+      name: 'ARTIFACTORY_REPO_PATH',
+      defaultValue: 'golden-images',
+      description: '[KVM/VMware] Artifactory repo path'
+    )
+
+    // VMware
+    string(
+      name: 'BASE_TEMPLATE_NAME',
+      defaultValue: 'RHEL9-Base-Template',
+      description: '[VMware] Base vSphere template'
+    )
+    string(
+      name: 'GOLDEN_VM_NAME_PREFIX',
+      defaultValue: 'golden',
+      description: '[VMware] Golden VM/template prefix'
+    )
+  }
+
+  stages {
+
+    stage('Dispatch Pipeline') {
+      steps {
+        script {
+
+          if (params.PLATFORM == 'AWS') {
+
+            if (!params.CIS_BASE_AMI_ID?.trim()) {
+              error('CIS_BASE_AMI_ID is required for AWS builds')
+            }
+
+            echo '[INFO] Triggering AWS Bake job'
+            def bakeBuild = build(
+              job: 'golden-aws-bake',
+              parameters: [
+                string(name: 'OS', value: params.OS),
+                string(name: 'CIS_BASE_AMI_ID', value: params.CIS_BASE_AMI_ID),
+                string(name: 'AMI_NAME_PREFIX', value: params.AMI_NAME_PREFIX)
+              ],
+              wait: true,
+              propagate: true
+            )
+
+            echo '[INFO] Fetching Golden AMI ID from bake job'
+            copyArtifacts(
+              projectName: 'golden-aws-bake',
+              selector: specific("${bakeBuild.number}"),
+              filter: 'output/aws_ami_id.txt',
+              target: 'output',
+              flatten: true
+            )
+
+            def goldenAmiId = readFile('output/aws_ami_id.txt').trim()
+            echo "[INFO] Golden AMI ID = ${goldenAmiId}"
+
+            if (params.RUN_SHARE_JOB) {
+              echo '[INFO] Triggering AWS Share job'
+              build(
+                job: 'golden-aws-share',
+                parameters: [
+                  string(name: 'SOURCE_AMI_ID', value: goldenAmiId),
+                  string(name: 'TARGET_REGIONS', value: params.TARGET_REGIONS),
+                  string(name: 'TARGET_ACCOUNTS', value: params.TARGET_ACCOUNTS),
+                  booleanParam(name: 'KMS_ENCRYPT', value: params.KMS_ENCRYPT),
+                  string(name: 'KMS_KEY_ID', value: params.KMS_KEY_ID),
+                  string(name: 'NAME_PREFIX', value: "${params.AMI_NAME_PREFIX}-shared")
+                ],
+                wait: true,
+                propagate: true
+              )
+            }
+
+          } else if (params.PLATFORM == 'KVM') {
+
+            echo '[INFO] Triggering KVM Bake job'
+            build(
+              job: 'golden-kvm-bake',
+              parameters: [
+                string(name: 'OS', value: params.OS),
+                string(
+                  name: 'ARTIFACTORY_REPO_PATH',
+                  value: "${params.ARTIFACTORY_REPO_PATH}/kvm"
+                )
+              ],
+              wait: true,
+              propagate: true
+            )
+
+          } else if (params.PLATFORM == 'VMWARE') {
+
+            echo '[INFO] Triggering VMware Bake job'
+            build(
+              job: 'golden-vmware-bake',
+              parameters: [
+                string(name: 'OS', value: params.OS),
+                string(name: 'BASE_TEMPLATE_NAME', value: params.BASE_TEMPLATE_NAME),
+                string(name: 'GOLDEN_VM_NAME_PREFIX', value: params.GOLDEN_VM_NAME_PREFIX),
+                string(
+                  name: 'ARTIFACTORY_REPO_PATH',
+                  value: "${params.ARTIFACTORY_REPO_PATH}/vmware"
+                )
+              ],
+              wait: true,
+              propagate: true
+            )
+
+          } else if (params.PLATFORM == 'WINDOWS') {
+
+            echo '[INFO] Triggering Windows Bake job'
+            build(
+              job: 'golden-windows-bake',
+              parameters: [
+                string(name: 'OS', value: params.OS),
+                string(name: 'CIS_BASE_AMI_ID', value: params.CIS_BASE_AMI_ID),
+                string(name: 'AMI_NAME_PREFIX', value: params.AMI_NAME_PREFIX)
+              ],
+              wait: true,
+              propagate: true
+            )
+
+          } else {
+            error("Unsupported PLATFORM: ${params.PLATFORM}")
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,41 +1,70 @@
 pipeline {
   agent any
-  options { timestamps(); ansiColor('xterm'); disableConcurrentBuilds() }
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+    disableConcurrentBuilds()
+  }
 
   parameters {
-    choice(name: 'OS', choices: ['rhel9', 'ubuntu2204'], description: 'OS flavor')
-    string(name: 'CIS_BASE_AMI_ID', defaultValue: '', description: 'Paste latest CIS Base AMI ID')
-    string(name: 'AMI_NAME_PREFIX', defaultValue: 'golden', description: 'Golden AMI prefix')
+    choice(
+      name: 'OS',
+      choices: ['rhel9', 'ubuntu2204', 'win2022'],
+      description: 'Operating system to build'
+    )
+    string(
+      name: 'CIS_BASE_AMI_ID',
+      defaultValue: '',
+      description: 'Source CIS base AMI ID'
+    )
+    string(
+      name: 'AMI_NAME_PREFIX',
+      defaultValue: 'golden',
+      description: 'Prefix for the Golden AMI name'
+    )
   }
 
   environment {
-    REGION = "us-east-1"
-    REPORT_BUCKET = "golden-image-reports"
-    REPORT_PREFIX = "qualys-reports"
+    REGION        = 'us-east-1'
+    REPORT_BUCKET = 'golden-image-reports'
+    REPORT_PREFIX = 'qualys-reports'
   }
 
   stages {
-    stage('Checkout') { steps { checkout scm } }
 
-    stage('Validate Inputs') {
+    stage('Checkout') {
       steps {
-        sh """
-          if [ -z "${CIS_BASE_AMI_ID}" ]; then
-            echo "ERROR: CIS_BASE_AMI_ID is required"
-            exit 2
-          fi
-        """
+        checkout scm
       }
     }
 
-    stage('Bake Golden AMI (Inline Pre/Post Qualys + Gate)') {
+    stage('Validate Inputs') {
       steps {
-        withCredentials([usernamePassword(
-          credentialsId: 'qualys-us-creds',
-          usernameVariable: 'QUALYS_USERNAME',
-          passwordVariable: 'QUALYS_PASSWORD'
-        )]) {
-          sh """
+        sh '''
+          if [ -z "${CIS_BASE_AMI_ID}" ]; then
+            echo "ERROR: CIS_BASE_AMI_ID must be provided"
+            exit 2
+          fi
+        '''
+      }
+    }
+
+    stage('Bake Golden AMI') {
+      steps {
+        withCredentials([
+          usernamePassword(
+            credentialsId: 'qualys-us-creds',
+            usernameVariable: 'QUALYS_USERNAME',
+            passwordVariable: 'QUALYS_PASSWORD'
+          )
+        ]) {
+          sh '''
+            set -euo pipefail
+
+            rm -rf output
+            mkdir -p output
+
             packer init packer/cloud/${OS}-aws.pkr.hcl
 
             packer build \
@@ -48,8 +77,39 @@ pipeline {
               -var "qualys_username=${QUALYS_USERNAME}" \
               -var "qualys_password=${QUALYS_PASSWORD}" \
               packer/cloud/${OS}-aws.pkr.hcl
-          """
+
+            python3 scripts/aws/extract_ami_id.py \
+              --manifest output/aws_ami_manifest.json \
+              --out output/aws_ami_id.txt
+
+            echo "[INFO] Golden AMI ID:"
+            cat output/aws_ami_id.txt
+          '''
         }
+      }
+    }
+
+    stage('Archive AMI Artifacts') {
+      steps {
+        archiveArtifacts artifacts: '''
+          output/aws_ami_id.txt,
+          output/aws_ami_manifest.json
+        ''', fingerprint: true
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+      echo "${env.BUILD_URL}"
+    }
+
+    failure {
+      script {
+        def tail = currentBuild.rawBuild.getLog(120).join("\n")
+        echo "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+        echo tail
       }
     }
   }

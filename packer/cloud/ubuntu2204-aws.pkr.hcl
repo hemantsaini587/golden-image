@@ -95,7 +95,17 @@ build {
     script = "../../scripts/common/qualys_post_scan_upload_and_gate.sh"
   }
 
-  # 5) Cleanup
+  # 5) Export SBOM
+  provisioner "shell" {
+    environment_vars = [
+      "REPORT_BUCKET=${var.report_bucket}",
+      "REPORT_PREFIX=${var.report_prefix}",
+      "OS_NAME=${var.os}"
+    ]
+    script = "../../scripts/common/export_sbom.sh"
+  }
+
+  # 6) Cleanup
   provisioner "shell" {
     script = "../../scripts/linux/finalize_cleanup.sh"
   }

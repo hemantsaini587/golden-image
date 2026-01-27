@@ -2,7 +2,8 @@
 import argparse
 import boto3
 import time
-from typing import List
+import json
+from typing import List, Dict
 
 def wait_for_image(ec2, image_id: str, timeout=3600):
     deadline = time.time() + timeout
@@ -28,13 +29,14 @@ def get_snapshot_ids(ec2, image_id: str) -> List[str]:
     return snap_ids
 
 def share_ami_and_snapshots(ec2, image_id: str, account_ids: List[str]):
-    # Share AMI
+    if not account_ids:
+        return
+
     ec2.modify_image_attribute(
         ImageId=image_id,
         LaunchPermission={"Add": [{"UserId": a} for a in account_ids]}
     )
 
-    # Share snapshots
     snaps = get_snapshot_ids(ec2, image_id)
     for sid in snaps:
         ec2.modify_snapshot_attribute(
@@ -44,9 +46,14 @@ def share_ami_and_snapshots(ec2, image_id: str, account_ids: List[str]):
             UserIds=account_ids
         )
 
+def tag_image(ec2, image_id: str, tags: Dict[str, str]):
+    ec2.create_tags(
+        Resources=[image_id],
+        Tags=[{"Key": k, "Value": v} for k, v in tags.items()]
+    )
+
 def copy_ami_to_region(src_region: str, dst_region: str, image_id: str, name: str,
                        encrypted: bool, kms_key_id: str | None):
-    src = boto3.client("ec2", region_name=src_region)
     dst = boto3.client("ec2", region_name=dst_region)
 
     copy_args = {
@@ -69,11 +76,12 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--source-region", required=True)
     p.add_argument("--source-ami", required=True)
-    p.add_argument("--target-regions", default="", help="Comma-separated regions")
-    p.add_argument("--target-accounts", default="", help="Comma-separated AWS account IDs")
+    p.add_argument("--target-regions", default="")
+    p.add_argument("--target-accounts", default="")
     p.add_argument("--kms-encrypt", action="store_true")
-    p.add_argument("--kms-key-id", default="", help="Optional KMS Key ARN/ID for target region copy")
+    p.add_argument("--kms-key-id", default="")
     p.add_argument("--name-prefix", default="golden-shared")
+    p.add_argument("--manifest-out", default="output/share_manifest.json")
     args = p.parse_args()
 
     target_regions = [r.strip() for r in args.target_regions.split(",") if r.strip()]
@@ -81,16 +89,23 @@ def main():
 
     src_ec2 = boto3.client("ec2", region_name=args.source_region)
 
-    # Share in source region first (optional)
+    manifest = {
+        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "source_region": args.source_region,
+        "source_ami": args.source_ami,
+        "target_accounts": target_accounts,
+        "kms_encrypt": args.kms_encrypt,
+        "kms_key_id": args.kms_key_id if args.kms_key_id else None,
+        "target_regions": {}
+    }
+
+    # Share in source region (if requested)
     if target_accounts:
-        print(f"[INFO] Sharing AMI {args.source_ami} in {args.source_region} with accounts {target_accounts}")
         share_ami_and_snapshots(src_ec2, args.source_ami, target_accounts)
 
-    # Copy to other regions
-    copied = {}
+    # Copy/share to regions
     for r in target_regions:
         name = f"{args.name_prefix}-{r}-{int(time.time())}"
-        print(f"[INFO] Copying AMI {args.source_ami} from {args.source_region} to {r} (encrypt={args.kms_encrypt})")
         new_ami = copy_ami_to_region(
             src_region=args.source_region,
             dst_region=r,
@@ -99,16 +114,32 @@ def main():
             encrypted=args.kms_encrypt,
             kms_key_id=args.kms_key_id if args.kms_key_id else None
         )
-        copied[r] = new_ami
-        print(f"[INFO] Copied AMI in {r}: {new_ami}")
+
+        dst_ec2 = boto3.client("ec2", region_name=r)
+
+        tag_image(dst_ec2, new_ami, {
+            "ImageType": "Golden",
+            "CopiedFrom": args.source_ami,
+            "SourceRegion": args.source_region,
+            "ManagedBy": "GoldenImageFactory"
+        })
 
         if target_accounts:
-            dst_ec2 = boto3.client("ec2", region_name=r)
-            print(f"[INFO] Sharing copied AMI {new_ami} in {r} with accounts {target_accounts}")
             share_ami_and_snapshots(dst_ec2, new_ami, target_accounts)
 
+        manifest["target_regions"][r] = {
+            "copied_ami": new_ami,
+            "shared_accounts": target_accounts
+        }
+
+    # Write manifest
+    import os
+    os.makedirs(os.path.dirname(args.manifest_out), exist_ok=True)
+    with open(args.manifest_out, "w") as f:
+        json.dump(manifest, f, indent=2)
+
     print("[INFO] Share AMI completed.")
-    print("[INFO] Copied AMIs:", copied)
+    print("[INFO] Manifest written:", args.manifest_out)
 
 if __name__ == "__main__":
     main()

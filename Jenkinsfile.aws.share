@@ -5,7 +5,7 @@ pipeline {
   parameters {
     string(name: 'SOURCE_AMI_ID', defaultValue: '', description: 'AMI ID to share/copy')
     string(name: 'TARGET_REGIONS', defaultValue: 'us-west-2', description: 'Comma-separated regions')
-    string(name: 'TARGET_ACCOUNTS', defaultValue: '', description: 'Comma-separated AWS Account IDs')
+    string(name: 'TARGET_ACCOUNTS', defaultValue: '', description: 'Comma-separated AWS account IDs')
     booleanParam(name: 'KMS_ENCRYPT', defaultValue: true, description: 'Encrypt copied AMIs with KMS')
     string(name: 'KMS_KEY_ID', defaultValue: '', description: 'Optional KMS Key ARN/ID')
     string(name: 'NAME_PREFIX', defaultValue: 'golden-shared', description: 'Name prefix for copied AMIs')
@@ -13,12 +13,20 @@ pipeline {
 
   environment {
     SOURCE_REGION = "us-east-1"
+    MANIFEST_OUT  = "output/share_manifest.json"
   }
 
   stages {
     stage('Checkout') { steps { checkout scm } }
 
-    stage('Share/Copy AMI') {
+    stage ('Validate AMI Tags') {
+      steps {
+        sh """
+          python3 scripts/aws/validate_ami_tags.py --region ${SOURCE_REGION} --ami-id ${SOURCE_AMI_ID} --require-os ${OS}
+        """
+      }
+    }
+    stage('Share/Copy AMI + Manifest') {
       steps {
         sh """
           python3 scripts/aws/share_ami.py \
@@ -28,9 +36,25 @@ pipeline {
             --target-accounts "${TARGET_ACCOUNTS}" \
             ${KMS_ENCRYPT ? "--kms-encrypt" : ""} \
             --kms-key-id "${KMS_KEY_ID}" \
-            --name-prefix "${NAME_PREFIX}"
+            --name-prefix "${NAME_PREFIX}" \
+            --manifest-out "${MANIFEST_OUT}"
         """
       }
+    }
+
+    stage('Archive Manifest') {
+      steps {
+        archiveArtifacts artifacts: 'output/share_manifest.json', fingerprint: true
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${env.BUILD_URL}"
+    }
+    failure {
+      echo "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${env.BUILD_URL}"
     }
   }
 }

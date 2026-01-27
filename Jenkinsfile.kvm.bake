@@ -4,12 +4,13 @@ pipeline {
 
   parameters {
     choice(name: 'OS', choices: ['rhel9'], description: 'KVM OS flavor')
+    string(name: 'ARTIFACTORY_REPO_PATH', defaultValue: 'golden-images/kvm', description: 'Artifactory repo path')
   }
 
   stages {
     stage('Checkout') { steps { checkout scm } }
 
-    stage('Build qcow2 with Packer QEMU') {
+    stage('Build qcow2') {
       steps {
         sh """
           packer init packer/kvm/${OS}-kvm.pkr.hcl
@@ -18,11 +19,20 @@ pipeline {
       }
     }
 
-    stage('Publish qcow2') {
+    stage('Upload qcow2 to Artifactory') {
       steps {
-        sh """
-          bash scripts/kvm/publish_qcow2.sh output/artifacts/kvm/${OS}
-        """
+        withCredentials([usernamePassword(
+          credentialsId: 'artifactory-creds',
+          usernameVariable: 'ARTIFACTORY_USER',
+          passwordVariable: 'ARTIFACTORY_TOKEN'
+        )]) {
+          sh """
+            export ARTIFACTORY_URL="${ARTIFACTORY_URL}"
+            FILE=$(find output -name "*.qcow2" | head -n 1)
+            TS=$(date -u +%Y%m%dT%H%M%SZ)
+            bash scripts/artifactory/upload_artifact.sh "$FILE" "${ARTIFACTORY_REPO_PATH}/${OS}/golden-${OS}-${TS}.qcow2"
+          """
+        }
       }
     }
   }
