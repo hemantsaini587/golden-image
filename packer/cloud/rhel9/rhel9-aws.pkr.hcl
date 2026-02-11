@@ -31,7 +31,7 @@ source "amazon-ebs" "golden" {
 
   iam_instance_profile = "packer-build-instance-profile"
 
-  ami_name = "${var.ami_name_prefix}-${var.os}-{timestamp()}"
+  ami_name = "${clean_resource_name("${var.ami_name_prefix}-${var.os}-${timestamp()}")}"
 
   tags = {
     "Name"      = "${var.ami_name_prefix}-${var.os}"
@@ -124,6 +124,7 @@ build {
     strip_path = true
   }
 }
+
 
 
 
