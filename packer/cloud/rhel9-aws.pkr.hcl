@@ -5,22 +5,24 @@ packer {
       version = ">= 1.0.0"
     }
     ansible = {
-      source = "github.com/hashicorp/ansible"
+      source  = "github.com/hashicorp/ansible"
       version = ">= 1.1.0"
     }
   }
 }
 
-variable "region" {}
-variable "source_ami" {}
-variable "ami_name_prefix" {}
-variable "os" {}
+# Variables
+variable "region" { type = string }
+variable "source_ami" { type = string }
+variable "ami_name_prefix" { type = string }
+variable "os" { type = string }
 
 variable "qualys_username" { type = string }
 variable "qualys_password" { type = string }
 variable "report_bucket"   { type = string }
 variable "report_prefix"   { type = string }
 
+# Source AMI definition
 source "amazon-ebs" "golden" {
   region        = var.region
   source_ami    = var.source_ami
@@ -39,6 +41,7 @@ source "amazon-ebs" "golden" {
   }
 }
 
+# Build steps
 build {
   name    = "golden-ami-${var.os}"
   sources = ["source.amazon-ebs.golden"]
@@ -79,11 +82,12 @@ build {
     script = "../../scripts/linux/patch_os.sh"
   }
 
+  # 4) Ansible CIS hardening
   provisioner "ansible" {
     playbook_file = "../../ansible/playbooks/linux_cis.yml"
   }
 
-  # 4) POST scan + report + upload + gate
+  # 5) POST scan + report + upload + gate
   provisioner "shell" {
     environment_vars = [
       "QUALYS_USERNAME=${var.qualys_username}",
@@ -98,7 +102,7 @@ build {
     script = "../../scripts/common/qualys_post_scan_upload_and_gate.sh"
   }
 
-  # 5) Export SBOM
+  # 6) Export SBOM
   provisioner "shell" {
     environment_vars = [
       "REPORT_BUCKET=${var.report_bucket}",
@@ -108,15 +112,14 @@ build {
     script = "../../scripts/common/export_sbom.sh"
   }
 
-  # 6) Cleanup
+  # 7) Cleanup
   provisioner "shell" {
     script = "../../scripts/linux/finalize_cleanup.sh"
   }
 
-  # 7) AMI Output
+  # 8) AMI Output
   post-processor "manifest" {
     output     = "output/aws_ami_manifest.json"
     strip_path = true
   }
 }
-
