@@ -57,8 +57,8 @@ build {
   # 1) Install agents + partitioning
   provisioner "shell" {
     scripts = [
-      "../../scripts/linux/partitioning.sh",
-      "../../scripts/linux/install_agents.sh"
+      "${path.root}/scripts/linux/partitioning.sh",
+      "${path.root}/scripts/linux/install_agents.sh"
     ]
   }
 
@@ -71,20 +71,20 @@ build {
       "REPORT_PREFIX=${var.report_prefix}",
       "OS_NAME=${var.os}",
       "SOURCE_AMI_ID=${var.source_ami}",
-      "BUILD_NUMBER=${env("BUILD_NUMBER")}",
-      "BUILD_URL=${env("BUILD_URL")}"
+      "BUILD_NUMBER=${coalesce(env("BUILD_NUMBER"), "local")}",
+      "BUILD_URL=${coalesce(env("BUILD_URL"), "local")}"
     ]
-    script = "../../scripts/common/qualys_pre_scan_and_upload.sh"
+    script = "${path.root}/scripts/common/qualys_pre_scan_and_upload.sh"
   }
 
   # 3) Patch + CIS hardening
   provisioner "shell" {
-    script = "../../scripts/linux/patch_os.sh"
+    script = "${path.root}/scripts/linux/patch_os.sh"
   }
 
   # 4) Ansible CIS hardening
   provisioner "ansible" {
-    playbook_file = "../../ansible/playbooks/linux_cis.yml"
+    playbook_file = "${path.root}/ansible/playbooks/linux_cis.yml"
   }
 
   # 5) POST scan + report + upload + gate
@@ -100,7 +100,7 @@ build {
       "BUILD_URL=${coalesce(env("BUILD_URL"), "local")}"
 
     ]
-    script = "../../scripts/common/qualys_post_scan_upload_and_gate.sh"
+    script = "${path.root}/scripts/common/qualys_post_scan_upload_and_gate.sh"
   }
 
   # 6) Export SBOM
@@ -110,12 +110,12 @@ build {
       "REPORT_PREFIX=${var.report_prefix}",
       "OS_NAME=${var.os}"
     ]
-    script = "../../scripts/common/export_sbom.sh"
+    script = "${path.root}/scripts/common/export_sbom.sh"
   }
 
   # 7) Cleanup
   provisioner "shell" {
-    script = "../../scripts/linux/finalize_cleanup.sh"
+    script = "${path.root}/scripts/linux/finalize_cleanup.sh"
   }
 
   # 8) AMI Output
@@ -124,6 +124,7 @@ build {
     strip_path = true
   }
 }
+
 
 
 
