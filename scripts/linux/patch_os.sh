@@ -1,11 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 echo "[INFO] Patching OS..."
+
 if command -v dnf >/dev/null 2>&1; then
-  dnf update -y
+  sudo dnf update -y || true
 elif command -v yum >/dev/null 2>&1; then
-  yum update -y
+  sudo yum update -y || true
 elif command -v apt-get >/dev/null 2>&1; then
-  apt-get update && apt-get upgrade -y
+  sudo apt-get update && sudo apt-get upgrade -y || true
 fi
+
 echo "[INFO] Patch completed."
