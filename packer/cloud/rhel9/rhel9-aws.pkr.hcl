@@ -13,15 +13,15 @@ packer {
 
 # No variable definitions here! They are in variables.pkr.hcl
 # Variables
-variable "region"          { type = string }
-variable "source_ami"      { type = string }
-variable "ami_name_prefix" { type = string }
-variable "os"              { type = string }
+#variable "region"          { type = string }
+#variable "source_ami"      { type = string }
+#variable "ami_name_prefix" { type = string }
+#variable "os"              { type = string }
 
-variable "qualys_username" { type = string }
-variable "qualys_password" { type = string }
-variable "report_bucket"   { type = string }
-variable "report_prefix"   { type = string }
+#variable "qualys_username" { type = string }
+#variable "qualys_password" { type = string }
+#variable "report_bucket"   { type = string }
+#variable "report_prefix"   { type = string }
 
 source "amazon-ebs" "golden" {
   region        = var.region
@@ -123,4 +123,5 @@ build {
     strip_path = true
   }
 }
+
 
