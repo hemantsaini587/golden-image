@@ -39,6 +39,12 @@ pipeline {
       }
     }
 
+    stage('Packer Init') {
+      steps {
+        sh 'packer init packer/cloud/rhel9-aws.pkr.hcl'
+      }
+    }
+
     stage('Validate Inputs') {
       steps {
         sh '''
