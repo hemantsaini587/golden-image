@@ -39,7 +39,7 @@ build {
   name    = "golden-ami-${var.os}"
   sources = ["source.amazon-ebs.golden"]
 
-  # 0️⃣ Install Python dependencies
+  #Install Python dependencies
   provisioner "shell" {
     inline = [
       "sudo yum install -y python3 python3-pip curl || true",
@@ -47,7 +47,7 @@ build {
     ]
   }
 
-  # 1️⃣ Partition + Agents
+  #Partition + Agents
   provisioner "shell" {
     scripts = [
       "${path.root}/../../../scripts/linux/partitioning.sh",
@@ -55,48 +55,48 @@ build {
     ]
   }
 
-  # 2️⃣ PRE Scan
-  provisioner "shell" {
-    environment_vars = [
-      "QUALYS_USERNAME=${var.qualys_username}",
-      "QUALYS_PASSWORD=${var.qualys_password}",
-      "REPORT_BUCKET=${var.report_bucket}",
-      "REPORT_PREFIX=${var.report_prefix}",
-      "OS_NAME=${var.os}",
-      "SOURCE_AMI_ID=${var.source_ami}",
-      "BUILD_NUMBER=${var.build_number}",
-      "BUILD_URL=${var.build_url}"
-    ]
-    script = "${path.root}/../../../scripts/common/qualys_pre_scan_and_upload.sh"
-  }
+  # PRE Scan
+  #provisioner "shell" {
+  #  environment_vars = [
+  #    "QUALYS_USERNAME=${var.qualys_username}",
+  #    "QUALYS_PASSWORD=${var.qualys_password}",
+  #    "REPORT_BUCKET=${var.report_bucket}",
+  #    "REPORT_PREFIX=${var.report_prefix}",
+  #    "OS_NAME=${var.os}",
+  #    "SOURCE_AMI_ID=${var.source_ami}",
+  #    "BUILD_NUMBER=${var.build_number}",
+  #    "BUILD_URL=${var.build_url}"
+  #  ]
+  #  script = "${path.root}/../../../scripts/common/qualys_pre_scan_and_upload.sh"
+  #}
 
-  # 3️⃣ Patch
+  # Patch
   provisioner "shell" {
     script = "${path.root}/../../../scripts/linux/patch_os.sh"
   }
 
-  # 4️⃣ CIS Hardening (Ansible)
-  provisioner "ansible" {
-    playbook_file = "${path.root}/../../../ansible/playbooks/linux_cis.yml"
-    user          = "ec2-user"
-  }
+  # CIS Hardening (Ansible)
+  #provisioner "ansible" {
+  #  playbook_file = "${path.root}/../../../ansible/playbooks/linux_cis.yml"
+  #  user          = "ec2-user"
+  #}
 
-  # 5️⃣ POST Scan + Gate
-  provisioner "shell" {
-    environment_vars = [
-      "QUALYS_USERNAME=${var.qualys_username}",
-      "QUALYS_PASSWORD=${var.qualys_password}",
-      "REPORT_BUCKET=${var.report_bucket}",
-      "REPORT_PREFIX=${var.report_prefix}",
-      "OS_NAME=${var.os}",
-      "SOURCE_AMI_ID=${var.source_ami}",
-      "BUILD_NUMBER=${var.build_number}",
-      "BUILD_URL=${var.build_url}"
-    ]
-    script = "${path.root}/../../../scripts/common/qualys_post_scan_upload_and_gate.sh"
-  }
+  # POST Scan + Gate
+  #provisioner "shell" {
+  #  environment_vars = [
+  #    "QUALYS_USERNAME=${var.qualys_username}",
+  #    "QUALYS_PASSWORD=${var.qualys_password}",
+  #    "REPORT_BUCKET=${var.report_bucket}",
+  #    "REPORT_PREFIX=${var.report_prefix}",
+  #    "OS_NAME=${var.os}",
+  #    "SOURCE_AMI_ID=${var.source_ami}",
+  #    "BUILD_NUMBER=${var.build_number}",
+  #    "BUILD_URL=${var.build_url}"
+  #  ]
+  #  script = "${path.root}/../../../scripts/common/qualys_post_scan_upload_and_gate.sh"
+  #}
 
-  # 6️⃣ SBOM Export
+  # SBOM Export
   provisioner "shell" {
     environment_vars = [
       "REPORT_BUCKET=${var.report_bucket}",
@@ -106,15 +106,16 @@ build {
     script = "${path.root}/../../../scripts/common/export_sbom.sh"
   }
 
-  # 7️⃣ Cleanup
+  # Cleanup
   provisioner "shell" {
     script = "${path.root}/../../../scripts/linux/finalize_cleanup.sh"
   }
 
-  # 8️⃣ Output Manifest
+  # Output Manifest
   post-processor "manifest" {
     output     = "output/aws_ami_manifest.json"
     strip_path = true
   }
 }
+
 
