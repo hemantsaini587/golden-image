@@ -1,5 +1,5 @@
 region          = "us-east-1"
-source_ami      = "ami-0703c5f16faf674b9"
+source_ami      = "ami-0ad50334604831820"
 ami_name_prefix = "golden-rhel9-test"
 os              = "rhel9"
 
