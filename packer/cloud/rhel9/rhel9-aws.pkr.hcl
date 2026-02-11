@@ -50,8 +50,8 @@ build {
   # 1️⃣ Partition + Agents
   provisioner "shell" {
     scripts = [
-      "${path.root}/scripts/linux/partitioning.sh",
-      "${path.root}/scripts/linux/install_agents.sh"
+      "${path.root}/../../../scripts/linux/partitioning.sh",
+      "${path.root}/../../../scripts/linux/install_agents.sh"
     ]
   }
 
@@ -67,17 +67,17 @@ build {
       "BUILD_NUMBER=${var.build_number}",
       "BUILD_URL=${var.build_url}"
     ]
-    script = "${path.root}/scripts/common/qualys_pre_scan_and_upload.sh"
+    script = "${path.root}/../../../scripts/common/qualys_pre_scan_and_upload.sh"
   }
 
   # 3️⃣ Patch
   provisioner "shell" {
-    script = "${path.root}/scripts/linux/patch_os.sh"
+    script = "${path.root}/../../../scripts/linux/patch_os.sh"
   }
 
   # 4️⃣ CIS Hardening (Ansible)
   provisioner "ansible" {
-    playbook_file = "${path.root}/ansible/playbooks/linux_cis.yml"
+    playbook_file = "${path.root}/../../../ansible/playbooks/linux_cis.yml"
     user          = "ec2-user"
   }
 
@@ -93,7 +93,7 @@ build {
       "BUILD_NUMBER=${var.build_number}",
       "BUILD_URL=${var.build_url}"
     ]
-    script = "${path.root}/scripts/common/qualys_post_scan_upload_and_gate.sh"
+    script = "${path.root}/../../../scripts/common/qualys_post_scan_upload_and_gate.sh"
   }
 
   # 6️⃣ SBOM Export
@@ -103,12 +103,12 @@ build {
       "REPORT_PREFIX=${var.report_prefix}",
       "OS_NAME=${var.os}"
     ]
-    script = "${path.root}/scripts/common/export_sbom.sh"
+    script = "${path.root}/../../../scripts/common/export_sbom.sh"
   }
 
   # 7️⃣ Cleanup
   provisioner "shell" {
-    script = "${path.root}/scripts/linux/finalize_cleanup.sh"
+    script = "${path.root}/../../../scripts/linux/finalize_cleanup.sh"
   }
 
   # 8️⃣ Output Manifest
@@ -117,3 +117,4 @@ build {
     strip_path = true
   }
 }
+
