@@ -19,7 +19,6 @@ source "amazon-ebs" "golden" {
 
   iam_instance_profile = "packer-build-instance-profile"
 
-  # Safe, AWS-compliant AMI name
   ami_name = format(
     "%s-%s-%s",
     var.ami_name_prefix,
@@ -32,6 +31,7 @@ source "amazon-ebs" "golden" {
     ImageType = "Golden"
     OS        = var.os
     BuiltBy   = "Jenkins+Packer"
+    Environment = "POC"
   }
 }
 
@@ -39,15 +39,15 @@ build {
   name    = "golden-ami-${var.os}"
   sources = ["source.amazon-ebs.golden"]
 
-  #Install Python dependencies
+  # Python dependencies (keep for future)
   provisioner "shell" {
     inline = [
-      "sudo yum install -y python3 python3-pip curl || true",
+      "sudo dnf install -y python3 python3-pip curl || sudo yum install -y python3 python3-pip curl || true",
       "sudo pip3 install --no-cache-dir requests reportlab pyyaml || true"
     ]
   }
 
-  #Partition + Agents
+  # Partition + Agents
   provisioner "shell" {
     scripts = [
       "${path.root}/../../../scripts/linux/partitioning.sh",
@@ -55,67 +55,41 @@ build {
     ]
   }
 
-  # PRE Scan
-  #provisioner "shell" {
-  #  environment_vars = [
-  #    "QUALYS_USERNAME=${var.qualys_username}",
-  #    "QUALYS_PASSWORD=${var.qualys_password}",
-  #    "REPORT_BUCKET=${var.report_bucket}",
-  #    "REPORT_PREFIX=${var.report_prefix}",
-  #    "OS_NAME=${var.os}",
-  #    "SOURCE_AMI_ID=${var.source_ami}",
-  #    "BUILD_NUMBER=${var.build_number}",
-  #    "BUILD_URL=${var.build_url}"
-  #  ]
-  #  script = "${path.root}/../../../scripts/common/qualys_pre_scan_and_upload.sh"
-  #}
+  # PRE Scan (DISABLED FOR POC)
+  # provisioner "shell" {
+  #   environment_vars = [...]
+  #   script = "${path.root}/../../../scripts/common/qualys_pre_scan_and_upload.sh"
+  # }
 
   # Patch
   provisioner "shell" {
     script = "${path.root}/../../../scripts/linux/patch_os.sh"
   }
 
-  # CIS Hardening (Ansible)
-  #provisioner "ansible" {
-  #  playbook_file = "${path.root}/../../../ansible/playbooks/linux_cis.yml"
-  #  user          = "ec2-user"
-  #}
+  # CIS Hardening (DISABLED FOR POC)
+  # provisioner "ansible" {
+  #   playbook_file = "${path.root}/../../../ansible/playbooks/linux_cis.yml"
+  #   user          = "ec2-user"
+  # }
 
-  # POST Scan + Gate
-  #provisioner "shell" {
-  #  environment_vars = [
-  #    "QUALYS_USERNAME=${var.qualys_username}",
-  #    "QUALYS_PASSWORD=${var.qualys_password}",
-  #    "REPORT_BUCKET=${var.report_bucket}",
-  #    "REPORT_PREFIX=${var.report_prefix}",
-  #    "OS_NAME=${var.os}",
-  #    "SOURCE_AMI_ID=${var.source_ami}",
-  #    "BUILD_NUMBER=${var.build_number}",
-  #    "BUILD_URL=${var.build_url}"
-  #  ]
-  #  script = "${path.root}/../../../scripts/common/qualys_post_scan_upload_and_gate.sh"
-  #}
+  # POST Scan + Gate (DISABLED FOR POC)
+  # provisioner "shell" {
+  #   environment_vars = [...]
+  #   script = "${path.root}/../../../scripts/common/qualys_post_scan_upload_and_gate.sh"
+  # }
 
-  # SBOM Export
-  provisioner "shell" {
-    environment_vars = [
-      "REPORT_BUCKET=${var.report_bucket}",
-      "REPORT_PREFIX=${var.report_prefix}",
-      "OS_NAME=${var.os}"
-    ]
-    script = "${path.root}/../../../scripts/common/export_sbom.sh"
-  }
+  # SBOM Export (DISABLED FOR POC)
+  # provisioner "shell" {
+  #   script = "${path.root}/../../../scripts/common/export_sbom.sh"
+  # }
 
   # Cleanup
-  provisioner "shell" {
-    script = "${path.root}/../../../scripts/linux/finalize_cleanup.sh"
-  }
+  # provisioner "shell" {
+  #   script = "${path.root}/../../../scripts/linux/finalize_cleanup.sh"
+  # }
 
-  # Output Manifest
   post-processor "manifest" {
     output     = "output/aws_ami_manifest.json"
     strip_path = true
   }
 }
-
-
