@@ -96,8 +96,9 @@ build {
       "REPORT_PREFIX=${var.report_prefix}",
       "OS_NAME=${var.os}",
       "SOURCE_AMI_ID=${var.source_ami}",
-      "BUILD_NUMBER=${env("BUILD_NUMBER")}",
-      "BUILD_URL=${env("BUILD_URL")}"
+      "BUILD_NUMBER=${coalesce(env("BUILD_NUMBER"), "local")}",
+      "BUILD_URL=${coalesce(env("BUILD_URL"), "local")}"
+
     ]
     script = "../../scripts/common/qualys_post_scan_upload_and_gate.sh"
   }
@@ -123,5 +124,6 @@ build {
     strip_path = true
   }
 }
+
 
 
