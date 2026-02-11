@@ -4,24 +4,20 @@ packer {
       source  = "github.com/hashicorp/amazon"
       version = ">= 1.0.0"
     }
+    ansible = {
+      source  = "github.com/hashicorp/ansible"
+      version = ">= 1.1.0"
+    }
   }
 }
 
-variable "region" {}
-variable "source_ami" {}
-variable "ami_name_prefix" {}
-variable "os" {}
-
-variable "qualys_username" { type = string }
-variable "qualys_password" { type = string }
-variable "report_bucket"   { type = string }
-variable "report_prefix"   { type = string }
+# No variable definitions here! They are in variables.pkr.hcl
 
 source "amazon-ebs" "golden" {
   region        = var.region
   source_ami    = var.source_ami
   instance_type = "t3.medium"
-  ssh_username  = "ubuntu"
+  ssh_username  = "ec2-user"
 
   iam_instance_profile = "packer-build-instance-profile"
 
@@ -35,6 +31,7 @@ source "amazon-ebs" "golden" {
   }
 }
 
+# Build steps
 build {
   name    = "golden-ami-${var.os}"
   sources = ["source.amazon-ebs.golden"]
@@ -42,9 +39,8 @@ build {
   # Ensure python + deps for Qualys PDF export
   provisioner "shell" {
     inline = [
-      "sudo apt-get update -y",
-      "sudo apt-get install -y python3 python3-pip curl awscli",
-      "sudo pip3 install --no-cache-dir requests reportlab pyyaml"
+      "sudo yum install -y python3 python3-pip curl || true",
+      "sudo pip3 install --no-cache-dir requests reportlab pyyaml || true"
     ]
   }
 
@@ -76,11 +72,12 @@ build {
     script = "../../scripts/linux/patch_os.sh"
   }
 
+  # 4) Ansible CIS hardening
   provisioner "ansible" {
     playbook_file = "../../ansible/playbooks/linux_cis.yml"
   }
 
-  # 4) POST scan + report + upload + gate
+  # 5) POST scan + report + upload + gate
   provisioner "shell" {
     environment_vars = [
       "QUALYS_USERNAME=${var.qualys_username}",
@@ -95,7 +92,7 @@ build {
     script = "../../scripts/common/qualys_post_scan_upload_and_gate.sh"
   }
 
-  # 5) Export SBOM
+  # 6) Export SBOM
   provisioner "shell" {
     environment_vars = [
       "REPORT_BUCKET=${var.report_bucket}",
@@ -105,8 +102,14 @@ build {
     script = "../../scripts/common/export_sbom.sh"
   }
 
-  # 6) Cleanup
+  # 7) Cleanup
   provisioner "shell" {
     script = "../../scripts/linux/finalize_cleanup.sh"
+  }
+
+  # 8) AMI Output
+  post-processor "manifest" {
+    output     = "output/aws_ami_manifest.json"
+    strip_path = true
   }
 }

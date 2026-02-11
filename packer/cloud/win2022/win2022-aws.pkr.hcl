@@ -7,27 +7,14 @@ packer {
   }
 }
 
-variable "region" {}
-variable "source_ami" {}
-variable "ami_name_prefix" {}
-variable "os" {}
-
-variable "qualys_username" { type = string }
-variable "qualys_password" { type = string }
-variable "report_bucket"   { type = string }
-variable "report_prefix"   { type = string }
-
 source "amazon-ebs" "golden" {
   region        = var.region
   source_ami    = var.source_ami
   instance_type = "t3.large"
-
   communicator   = "winrm"
   winrm_username = "Administrator"
   winrm_timeout  = "45m"
-
   iam_instance_profile = "packer-build-instance-profile"
-
   ami_name = "${var.ami_name_prefix}-${var.os}-{{timestamp}}"
 
   tags = {
@@ -37,6 +24,7 @@ source "amazon-ebs" "golden" {
     "BuiltBy"   = "Jenkins+Packer"
   }
 }
+
 
 build {
   name    = "golden-ami-${var.os}"
