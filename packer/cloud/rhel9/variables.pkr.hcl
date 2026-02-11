@@ -30,3 +30,13 @@ variable "report_bucket" {
 variable "report_prefix" {
   type = string
 }
+
+variable "build_number" {
+  type    = string
+  default = "local"
+}
+
+variable "build_url" {
+  type    = string
+  default = "local"
+}
