@@ -11,18 +11,6 @@ packer {
   }
 }
 
-# No variable definitions here! They are in variables.pkr.hcl
-# Variables
-#variable "region"          { type = string }
-#variable "source_ami"      { type = string }
-#variable "ami_name_prefix" { type = string }
-#variable "os"              { type = string }
-
-#variable "qualys_username" { type = string }
-#variable "qualys_password" { type = string }
-#variable "report_bucket"   { type = string }
-#variable "report_prefix"   { type = string }
-
 source "amazon-ebs" "golden" {
   region        = var.region
   source_ami    = var.source_ami
@@ -31,22 +19,27 @@ source "amazon-ebs" "golden" {
 
   iam_instance_profile = "packer-build-instance-profile"
 
-  ami_name = "${var.ami_name_prefix}-${var.os}-${formatdate("YYYYMMDDhhmmss", timestamp())}"
+  # Safe, AWS-compliant AMI name
+  ami_name = format(
+    "%s-%s-%s",
+    var.ami_name_prefix,
+    var.os,
+    formatdate("YYYYMMDDhhmmss", timestamp())
+  )
 
   tags = {
-    "Name"      = "${var.ami_name_prefix}-${var.os}"
-    "ImageType" = "Golden"
-    "OS"        = var.os
-    "BuiltBy"   = "Jenkins+Packer"
+    Name      = "${var.ami_name_prefix}-${var.os}"
+    ImageType = "Golden"
+    OS        = var.os
+    BuiltBy   = "Jenkins+Packer"
   }
 }
 
-# Build steps
 build {
   name    = "golden-ami-${var.os}"
   sources = ["source.amazon-ebs.golden"]
 
-  # Ensure python + deps for Qualys PDF export
+  # 0️⃣ Install Python dependencies
   provisioner "shell" {
     inline = [
       "sudo yum install -y python3 python3-pip curl || true",
@@ -54,7 +47,7 @@ build {
     ]
   }
 
-  # 1) Install agents + partitioning
+  # 1️⃣ Partition + Agents
   provisioner "shell" {
     scripts = [
       "${path.root}/scripts/linux/partitioning.sh",
@@ -62,7 +55,7 @@ build {
     ]
   }
 
-  # 2) PRE scan + report + upload
+  # 2️⃣ PRE Scan
   provisioner "shell" {
     environment_vars = [
       "QUALYS_USERNAME=${var.qualys_username}",
@@ -71,23 +64,24 @@ build {
       "REPORT_PREFIX=${var.report_prefix}",
       "OS_NAME=${var.os}",
       "SOURCE_AMI_ID=${var.source_ami}",
-      "BUILD_NUMBER=${coalesce(env("BUILD_NUMBER"), "local")}",
-      "BUILD_URL=${coalesce(env("BUILD_URL"), "local")}"
+      "BUILD_NUMBER=${var.build_number}",
+      "BUILD_URL=${var.build_url}"
     ]
     script = "${path.root}/scripts/common/qualys_pre_scan_and_upload.sh"
   }
 
-  # 3) Patch + CIS hardening
+  # 3️⃣ Patch
   provisioner "shell" {
     script = "${path.root}/scripts/linux/patch_os.sh"
   }
 
-  # 4) Ansible CIS hardening
+  # 4️⃣ CIS Hardening (Ansible)
   provisioner "ansible" {
     playbook_file = "${path.root}/ansible/playbooks/linux_cis.yml"
+    user          = "ec2-user"
   }
 
-  # 5) POST scan + report + upload + gate
+  # 5️⃣ POST Scan + Gate
   provisioner "shell" {
     environment_vars = [
       "QUALYS_USERNAME=${var.qualys_username}",
@@ -96,14 +90,13 @@ build {
       "REPORT_PREFIX=${var.report_prefix}",
       "OS_NAME=${var.os}",
       "SOURCE_AMI_ID=${var.source_ami}",
-      "BUILD_NUMBER=${coalesce(env("BUILD_NUMBER"), "local")}",
-      "BUILD_URL=${coalesce(env("BUILD_URL"), "local")}"
-
+      "BUILD_NUMBER=${var.build_number}",
+      "BUILD_URL=${var.build_url}"
     ]
     script = "${path.root}/scripts/common/qualys_post_scan_upload_and_gate.sh"
   }
 
-  # 6) Export SBOM
+  # 6️⃣ SBOM Export
   provisioner "shell" {
     environment_vars = [
       "REPORT_BUCKET=${var.report_bucket}",
@@ -113,20 +106,14 @@ build {
     script = "${path.root}/scripts/common/export_sbom.sh"
   }
 
-  # 7) Cleanup
+  # 7️⃣ Cleanup
   provisioner "shell" {
     script = "${path.root}/scripts/linux/finalize_cleanup.sh"
   }
 
-  # 8) AMI Output
+  # 8️⃣ Output Manifest
   post-processor "manifest" {
     output     = "output/aws_ami_manifest.json"
     strip_path = true
   }
 }
-
-
-
-
-
-
