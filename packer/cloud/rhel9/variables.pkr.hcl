@@ -12,6 +12,7 @@ variable "ami_name_prefix" {
 
 variable "os" {
   type = string
+  default = "rhel9"
 }
 
 variable "qualys_username" {
